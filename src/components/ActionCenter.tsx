@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
-import { ArrowRight, ArrowLeft, Database, Upload, Download, RefreshCw } from 'lucide-react';
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ArrowRight, ArrowLeft, Database, Upload, Download, RefreshCw, Info, ExternalLink } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { Project, WPEnvironment, WordPressData } from '@/types/wordpress';
@@ -27,54 +28,175 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [wpData, setWpData] = React.useState<{ live?: WordPressData; dev?: WordPressData }>({});
   const [loadingData, setLoadingData] = React.useState(false);
+  const [lastDataFetch, setLastDataFetch] = React.useState<Date | null>(null);
+  const [usePluginSync, setUsePluginSync] = React.useState(true);
   const [syncProgress, setSyncProgress] = React.useState<{
     step: string;
     progress: number;
     message: string;
   } | null>(null);
 
-  const fetchWordPressData = async (environment: 'live' | 'dev') => {
+  const loadCachedData = async (environmentId: string, environmentType: 'live' | 'dev') => {
+    try {
+      console.log(`Loading cached data for ${environmentType} environment:`, environmentId);
+      
+      const { data, error } = await supabase
+        .from('wp_environment_data')
+        .select('data, fetched_at')
+        .eq('environment_id', environmentId)
+        .order('fetched_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error loading cached data:', error);
+        return;
+      }
+
+      if (data) {
+        console.log(`Found cached data for ${environmentType}:`, data);
+        setWpData(prev => ({
+          ...prev,
+          [environmentType]: data.data
+        }));
+        setLastDataFetch(new Date(data.fetched_at));
+        
+        toast({
+          title: "Gecachte data geladen",
+          description: `${environmentType} data geladen van ${new Date(data.fetched_at).toLocaleString()}`,
+        });
+      } else {
+        console.log(`No cached data found for ${environmentType} environment`);
+      }
+    } catch (error) {
+      console.error('Error loading cached data:', error);
+    }
+  };
+
+  const saveCachedData = async (environmentId: string, data: WordPressData) => {
+    try {
+      console.log('Saving cached data for environment:', environmentId);
+      
+      await supabase
+        .from('wp_environment_data')
+        .delete()
+        .eq('environment_id', environmentId);
+
+      const { error } = await supabase
+        .from('wp_environment_data')
+        .insert({
+          environment_id: environmentId,
+          data: data,
+          fetched_at: new Date().toISOString()
+        });
+
+      if (error) {
+        console.error('Error saving cached data:', error);
+      } else {
+        console.log('Cached data saved successfully');
+        setLastDataFetch(new Date());
+      }
+    } catch (error) {
+      console.error('Error saving cached data:', error);
+    }
+  };
+
+  const fetchWordPressData = async (environment: 'live' | 'dev', forceRefresh: boolean = false) => {
     const config = environments[environment];
     if (!config) return;
 
+    if (!forceRefresh && lastDataFetch && wpData[environment]) {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      if (lastDataFetch > oneHourAgo) {
+        toast({
+          title: "Gecachte data gebruikt",
+          description: `${environment} data is recent (${lastDataFetch.toLocaleString()}). Gebruik 'Force Refresh' voor nieuwe data.`,
+        });
+        return;
+      }
+    }
+
     setLoadingData(true);
     try {
-      const credentials = {
-        url: config.url,
-        username: config.username,
-        password: config.password,
-        ...(config.db_host && {
-          db_host: config.db_host,
-          db_name: config.db_name,
-          db_user: config.db_user,
-          db_password: config.db_password,
-        })
-      };
+      let data;
+      
+      if (usePluginSync) {
+        // Use WordPress plugin API
+        console.log(`Fetching WordPress data via plugin for ${environment}...`);
+        const authHeader = btoa(`${config.username}:${config.password}`);
+        
+        const response = await fetch(`${config.url}/wp-json/wp-sync-manager/v1/data`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Basic ${authHeader}`,
+            'Content-Type': 'application/json'
+          }
+        });
 
-      const { data, error } = await supabase.functions.invoke('fetch-wp-data', {
-        body: { credentials }
-      });
+        if (!response.ok) {
+          throw new Error(`Plugin API error: ${response.status} ${response.statusText}`);
+        }
 
-      if (error) throw error;
+        data = await response.json();
+      } else {
+        // Use legacy edge function
+        const credentials = {
+          url: config.url,
+          username: config.username,
+          password: config.password,
+          ...(config.db_host && {
+            db_host: config.db_host,
+            db_name: config.db_name,
+            db_user: config.db_user,
+            db_password: config.db_password,
+          })
+        };
+
+        const { data: edgeData, error } = await supabase.functions.invoke('fetch-wp-data', {
+          body: { credentials }
+        });
+
+        if (error) throw error;
+        data = edgeData;
+      }
       
       setWpData(prev => ({
         ...prev,
         [environment]: data
       }));
 
+      if (config.id) {
+        await saveCachedData(config.id, data);
+      }
+
       toast({
-        title: "Data fetched",
-        description: `Successfully fetched ${environment} WordPress data`,
+        title: "Data opgehaald",
+        description: `Verse ${environment} WordPress data succesvol opgehaald en gecached`,
       });
     } catch (error: any) {
       console.error('Error fetching WordPress data:', error);
       toast({
-        title: "Error",
-        description: `Failed to fetch ${environment} data: ${error.message}`,
+        title: "Fout",
+        description: `Kon ${environment} data niet ophalen: ${error.message}`,
         variant: "destructive",
       });
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  const getDataAge = () => {
+    if (!lastDataFetch) return null;
+    
+    const now = new Date();
+    const diffMs = now.getTime() - lastDataFetch.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMinutes / 60);
+    
+    if (diffMinutes < 60) {
+      return `${diffMinutes} minuten geleden`;
+    } else {
+      return `${diffHours} uur geleden`;
     }
   };
 
@@ -121,15 +243,14 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
   };
 
   const handlePull = async () => {
-    console.log('Starting real pull operation:', selectedOptions);
+    console.log('Starting pull operation with plugin sync:', selectedOptions);
     setIsProcessing(true);
-    setSyncProgress({ step: 'initializing', progress: 0, message: 'Initializing sync...' });
+    setSyncProgress({ step: 'initializing', progress: 0, message: 'Initialiseren sync...' });
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
-      // Create sync operation record
       const { data: syncOp, error } = await supabase
         .from('sync_operations')
         .insert([{
@@ -146,8 +267,9 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
 
       if (error) throw error;
 
-      // Call the real sync function
-      const { data: syncResult, error: syncError } = await supabase.functions.invoke('wordpress-sync', {
+      const syncFunction = usePluginSync ? 'wordpress-plugin-sync' : 'wordpress-sync';
+      
+      const { data: syncResult, error: syncError } = await supabase.functions.invoke(syncFunction, {
         body: {
           sourceEnv: environments.live,
           targetEnv: environments.dev,
@@ -171,10 +293,10 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
             step: operation.status,
             progress: operation.progress || 0,
             message: operation.status === 'completed' 
-              ? 'Sync completed successfully!'
+              ? 'Sync succesvol voltooid!'
               : operation.status === 'failed'
-              ? `Sync failed: ${operation.error_message}`
-              : `Progress: ${operation.progress}%`
+              ? `Sync mislukt: ${operation.error_message}`
+              : `Voortgang: ${operation.progress}%`
           });
 
           if (operation.status === 'completed' || operation.status === 'failed') {
@@ -184,13 +306,13 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
             
             if (operation.status === 'completed') {
               toast({
-                title: "Pull Complete",
-                description: "Successfully pulled data from live to development environment.",
+                title: "Pull Voltooid",
+                description: "Data succesvol overgetrokken van live naar development omgeving.",
               });
             } else {
               toast({
-                title: "Pull Failed",
-                description: operation.error_message || "An error occurred during sync",
+                title: "Pull Mislukt",
+                description: operation.error_message || "Er is een fout opgetreden tijdens sync",
                 variant: "destructive",
               });
             }
@@ -206,7 +328,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
           setSyncProgress(null);
           toast({
             title: "Sync Timeout",
-            description: "The sync operation is taking longer than expected. Please check the logs.",
+            description: "De sync operatie duurt langer dan verwacht. Controleer de logs.",
             variant: "destructive",
           });
         }
@@ -216,7 +338,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
       setIsProcessing(false);
       setSyncProgress(null);
       toast({
-        title: "Pull Failed",
+        title: "Pull Mislukt",
         description: error.message,
         variant: "destructive",
       });
@@ -224,9 +346,9 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
   };
 
   const handlePush = async () => {
-    console.log('Starting real push operation:', selectedOptions);
+    console.log('Starting push operation with plugin sync:', selectedOptions);
     setIsProcessing(true);
-    setSyncProgress({ step: 'initializing', progress: 0, message: 'Initializing push...' });
+    setSyncProgress({ step: 'initializing', progress: 0, message: 'Initialiseren push...' });
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -248,16 +370,15 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
 
       if (error) throw error;
 
-      // Simulate conflict detection for database
       if (selectedOptions.database.selected.length > 0) {
         setTimeout(async () => {
           const mockConflicts = {
             newRows: [
-              { table: 'wp_posts', count: 5, description: 'New blog posts in dev' },
-              { table: 'wp_users', count: 2, description: 'New user accounts in dev' }
+              { table: 'wp_posts', count: 5, description: 'Nieuwe blog posts in dev' },
+              { table: 'wp_users', count: 2, description: 'Nieuwe gebruikersaccounts in dev' }
             ],
             updatedRows: [
-              { table: 'wp_options', count: 3, description: 'Modified site settings' }
+              { table: 'wp_options', count: 3, description: 'Gewijzigde site instellingen' }
             ]
           };
           
@@ -275,8 +396,9 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
           onConflictDetected(mockConflicts);
         }, 2000);
       } else {
-        // Call real sync function for push
-        const { data: syncResult, error: syncError } = await supabase.functions.invoke('wordpress-sync', {
+        const syncFunction = usePluginSync ? 'wordpress-plugin-sync' : 'wordpress-sync';
+        
+        const { data: syncResult, error: syncError } = await supabase.functions.invoke(syncFunction, {
           body: {
             sourceEnv: environments.dev,
             targetEnv: environments.live,
@@ -287,7 +409,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
 
         if (syncError) throw syncError;
 
-        // Same progress polling logic as pull
+        // Poll for progress updates
         const progressInterval = setInterval(async () => {
           const { data: operation } = await supabase
             .from('sync_operations')
@@ -300,10 +422,10 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
               step: operation.status,
               progress: operation.progress || 0,
               message: operation.status === 'completed' 
-                ? 'Push completed successfully!'
+                ? 'Push succesvol voltooid!'
                 : operation.status === 'failed'
-                ? `Push failed: ${operation.error_message}`
-                : `Progress: ${operation.progress}%`
+                ? `Push mislukt: ${operation.error_message}`
+                : `Voortgang: ${operation.progress}%`
             });
 
             if (operation.status === 'completed' || operation.status === 'failed') {
@@ -313,13 +435,13 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
               
               if (operation.status === 'completed') {
                 toast({
-                  title: "Push Complete",
-                  description: "Successfully pushed data from development to live environment.",
+                  title: "Push Voltooid",
+                  description: "Data succesvol gepusht van development naar live omgeving.",
                 });
               } else {
                 toast({
-                  title: "Push Failed",
-                  description: operation.error_message || "An error occurred during sync",
+                  title: "Push Mislukt",
+                  description: operation.error_message || "Er is een fout opgetreden tijdens sync",
                   variant: "destructive",
                 });
               }
@@ -339,7 +461,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
       setIsProcessing(false);
       setSyncProgress(null);
       toast({
-        title: "Push Failed",
+        title: "Push Mislukt",
         description: error.message,
         variant: "destructive",
       });
@@ -358,31 +480,79 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
 
   return (
     <div className="space-y-6">
+      {/* Plugin Installation Notice */}
+      <Alert>
+        <Info className="h-4 w-4" />
+        <AlertDescription>
+          <div className="space-y-2">
+            <p className="font-medium">WordPress Plugin Vereist</p>
+            <p className="text-sm">
+              Voor optimale sync functionaliteit, installeer de WP Sync Manager plugin op beide omgevingen.
+            </p>
+            <div className="flex items-center gap-2 text-sm">
+              <Button variant="outline" size="sm" asChild>
+                <a href="/wordpress-plugin/wp-sync-manager.zip" download className="flex items-center gap-1">
+                  <Download className="h-3 w-3" />
+                  Download Plugin
+                </a>
+              </Button>
+              <span className="text-muted-foreground">Installeer op beide WordPress sites</span>
+            </div>
+          </div>
+        </AlertDescription>
+      </Alert>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Database className="h-5 w-5" />
-              <CardTitle>Select Data to Synchronize</CardTitle>
+              <CardTitle>Selecteer Data om te Synchroniseren</CardTitle>
             </div>
-            <Button
-              onClick={() => fetchWordPressData('live')}
-              disabled={!environments.live?.url || loadingData}
-              variant="outline"
-              size="sm"
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${loadingData ? 'animate-spin' : ''}`} />
-              Fetch Live Data
-            </Button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center space-x-2">
+                <Checkbox
+                  id="use-plugin-sync"
+                  checked={usePluginSync}
+                  onCheckedChange={(checked) => setUsePluginSync(checked as boolean)}
+                />
+                <label htmlFor="use-plugin-sync" className="text-sm font-medium">
+                  Gebruik Plugin Sync
+                </label>
+              </div>
+              {lastDataFetch && (
+                <span className="text-sm text-muted-foreground">
+                  Data van {getDataAge()}
+                </span>
+              )}
+              <Button
+                onClick={() => fetchWordPressData('live', false)}
+                disabled={!environments.live?.url || loadingData}
+                variant="outline"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${loadingData ? 'animate-spin' : ''}`} />
+                Haal Live Data Op
+              </Button>
+              <Button
+                onClick={() => fetchWordPressData('live', true)}
+                disabled={!environments.live?.url || loadingData}
+                variant="outline"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${loadingData ? 'animate-spin' : ''}`} />
+                Force Refresh
+              </Button>
+            </div>
           </div>
           <CardDescription>
-            Choose which components to include in your push/pull operation
+            Kies welke componenten je wilt meenemen in je push/pull operatie
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           {!wpData.live ? (
             <div className="text-center text-muted-foreground py-8">
-              Click "Fetch Live Data" to load available plugins, themes, and database tables
+              Klik op "Haal Live Data Op" om beschikbare plugins, themes en database tabellen te laden
             </div>
           ) : (
             <>
@@ -390,7 +560,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium">Plugins</h3>
-                  <Badge variant="outline">{selectedOptions.plugins.selected.length} selected</Badge>
+                  <Badge variant="outline">{selectedOptions.plugins.selected.length} geselecteerd</Badge>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -398,7 +568,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
                     checked={selectedOptions.plugins.all}
                     onCheckedChange={(checked) => handleOptionChange('plugins', 'all', checked)}
                   />
-                  <label htmlFor="plugins-all" className="text-sm font-medium">Select all plugins</label>
+                  <label htmlFor="plugins-all" className="text-sm font-medium">Selecteer alle plugins</label>
                 </div>
                 <div className="grid grid-cols-2 gap-2 ml-6">
                   {availablePlugins.map((plugin) => (
@@ -420,7 +590,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-medium">Themes</h3>
-                  <Badge variant="outline">{selectedOptions.themes.selected.length} selected</Badge>
+                  <Badge variant="outline">{selectedOptions.themes.selected.length} geselecteerd</Badge>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -428,7 +598,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
                     checked={selectedOptions.themes.all}
                     onCheckedChange={(checked) => handleOptionChange('themes', 'all', checked)}
                   />
-                  <label htmlFor="themes-all" className="text-sm font-medium">Select all themes</label>
+                  <label htmlFor="themes-all" className="text-sm font-medium">Selecteer alle themes</label>
                 </div>
                 <div className="grid grid-cols-2 gap-2 ml-6">
                   {availableThemes.map((theme) => (
@@ -449,8 +619,8 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
               {/* Database Section */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Database Tables</h3>
-                  <Badge variant="outline">{selectedOptions.database.selected.length} selected</Badge>
+                  <h3 className="text-sm font-medium">Database Tabellen</h3>
+                  <Badge variant="outline">{selectedOptions.database.selected.length} geselecteerd</Badge>
                 </div>
                 <div className="flex items-center space-x-2">
                   <Checkbox
@@ -458,7 +628,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
                     checked={selectedOptions.database.all}
                     onCheckedChange={(checked) => handleOptionChange('database', 'all', checked)}
                   />
-                  <label htmlFor="database-all" className="text-sm font-medium">Select all tables</label>
+                  <label htmlFor="database-all" className="text-sm font-medium">Selecteer alle tabellen</label>
                 </div>
                 <div className="grid grid-cols-2 gap-2 ml-6">
                   {availableTables.map((table) => (
@@ -484,13 +654,13 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
                     checked={selectedOptions.media}
                     onCheckedChange={(checked) => setSelectedOptions(prev => ({ ...prev, media: checked as boolean }))}
                   />
-                  <label htmlFor="media" className="text-sm font-medium">Include Media Files</label>
+                  <label htmlFor="media" className="text-sm font-medium">Inclusief Media Bestanden</label>
                   {wpData.live?.media_count && (
-                    <Badge variant="secondary">{wpData.live.media_count} files</Badge>
+                    <Badge variant="secondary">{wpData.live.media_count} bestanden</Badge>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground ml-6">
-                  Synchronize uploaded images, documents, and other media files
+                  Synchroniseer geüploade afbeeldingen, documenten en andere media bestanden
                 </p>
               </div>
             </>
@@ -507,7 +677,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
         >
           <Download className="h-5 w-5 mr-2" />
           <div className="text-left">
-            <div className="font-semibold">Pull from Live</div>
+            <div className="font-semibold">Pull van Live</div>
             <div className="text-xs opacity-90">Live → Development</div>
           </div>
         </Button>
@@ -520,7 +690,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
         >
           <Upload className="h-5 w-5 mr-2" />
           <div className="text-left">
-            <div className="font-semibold">Push to Live</div>
+            <div className="font-semibold">Push naar Live</div>
             <div className="text-xs opacity-90">Development → Live</div>
           </div>
         </Button>
@@ -541,7 +711,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
                 ></div>
               </div>
               <div className="text-center text-sm text-muted-foreground">
-                {syncProgress.progress}% complete
+                {syncProgress.progress}% voltooid
               </div>
             </div>
           </CardContent>
@@ -553,7 +723,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
           <CardContent className="py-6">
             <div className="flex items-center justify-center space-x-2">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
-              <span>Processing synchronization...</span>
+              <span>Synchronisatie wordt verwerkt...</span>
             </div>
           </CardContent>
         </Card>
