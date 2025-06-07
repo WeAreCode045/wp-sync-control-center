@@ -35,14 +35,20 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
 
     setLoadingData(true);
     try {
+      const credentials = {
+        url: config.url,
+        username: config.username,
+        password: config.password,
+        ...(config.db_host && {
+          db_host: config.db_host,
+          db_name: config.db_name,
+          db_user: config.db_user,
+          db_password: config.db_password,
+        })
+      };
+
       const { data, error } = await supabase.functions.invoke('fetch-wp-data', {
-        body: {
-          credentials: {
-            url: config.url,
-            username: config.username,
-            password: config.password
-          }
-        }
+        body: { credentials }
       });
 
       if (error) throw error;

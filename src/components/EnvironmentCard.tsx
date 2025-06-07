@@ -5,14 +5,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Database, Settings } from 'lucide-react';
+import { Separator } from "@/components/ui/separator";
+import { Database, Settings, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WPEnvironment } from '@/types/wordpress';
 
 interface EnvironmentCardProps {
   title: string;
   description: string;
-  config: Partial<WPEnvironment> & { url: string; username: string; password: string; name: string };
+  config: Partial<WPEnvironment> & { 
+    url: string; 
+    username: string; 
+    password: string; 
+    name: string;
+    db_host?: string;
+    db_name?: string;
+    db_user?: string;
+    db_password?: string;
+  };
   onConfigChange: (config: any) => void;
   variant: 'live' | 'dev';
 }
@@ -21,6 +31,7 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
   const [localConfig, setLocalConfig] = React.useState(config);
   const [isTesting, setIsTesting] = React.useState(false);
   const [hasChanges, setHasChanges] = React.useState(false);
+  const [showDbSettings, setShowDbSettings] = React.useState(false);
 
   React.useEffect(() => {
     setLocalConfig(config);
@@ -140,6 +151,74 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
           <p className="text-xs text-muted-foreground">
             Use a WordPress Application Password. Spaces will be automatically removed.
           </p>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-4">
+          <Button
+            onClick={() => setShowDbSettings(!showDbSettings)}
+            variant="outline"
+            className="w-full justify-between"
+          >
+            <span>Database Connection (Optional)</span>
+            {showDbSettings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+          
+          {showDbSettings && (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-muted-foreground">
+                For real database table information, provide your WordPress database credentials from wp-config.php
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-db-host`}>Database Host</Label>
+                  <Input
+                    id={`${variant}-db-host`}
+                    placeholder="localhost"
+                    value={localConfig.db_host || ''}
+                    onChange={(e) => handleInputChange('db_host', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">DB_HOST</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-db-name`}>Database Name</Label>
+                  <Input
+                    id={`${variant}-db-name`}
+                    placeholder="wp_database"
+                    value={localConfig.db_name || ''}
+                    onChange={(e) => handleInputChange('db_name', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">DB_NAME</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-db-user`}>Database User</Label>
+                  <Input
+                    id={`${variant}-db-user`}
+                    placeholder="wp_user"
+                    value={localConfig.db_user || ''}
+                    onChange={(e) => handleInputChange('db_user', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">DB_USER</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-db-password`}>Database Password</Label>
+                  <Input
+                    id={`${variant}-db-password`}
+                    type="password"
+                    placeholder="database_password"
+                    value={localConfig.db_password || ''}
+                    onChange={(e) => handleInputChange('db_password', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">DB_PASSWORD</p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2">

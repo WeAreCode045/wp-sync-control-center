@@ -48,6 +48,10 @@ export interface WPEnvironment {
   url: string;
   username: string;
   password: string;
+  db_host?: string;
+  db_name?: string;
+  db_user?: string;
+  db_password?: string;
   status: 'connected' | 'disconnected' | 'error';
   last_connected_at?: string;
   created_at: string;
