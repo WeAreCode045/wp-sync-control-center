@@ -57,7 +57,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
         console.log(`Found cached data for ${environmentType}:`, data);
         setWpData(prev => ({
           ...prev,
-          [environmentType]: data.data
+          [environmentType]: data.data as WordPressData
         }));
         setLastDataFetch(new Date(data.fetched_at));
         
@@ -86,7 +86,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
         .from('wp_environment_data')
         .insert({
           environment_id: environmentId,
-          data: data,
+          data: data as any, // Cast to any to satisfy Json type
           fetched_at: new Date().toISOString()
         });
 
