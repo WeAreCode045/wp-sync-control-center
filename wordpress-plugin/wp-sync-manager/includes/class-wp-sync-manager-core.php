@@ -58,6 +58,7 @@ class WP_Sync_Manager_Core {
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-api.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-data.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-file-handler.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-ssh-handler.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-network-communicator.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-database-sync.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-plugin-sync.php';
