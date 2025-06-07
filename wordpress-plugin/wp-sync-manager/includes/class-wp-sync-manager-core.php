@@ -1,4 +1,3 @@
-
 <?php
 /**
  * Core plugin functionality
@@ -58,9 +57,14 @@ class WP_Sync_Manager_Core {
     private function load_includes() {
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-api.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-data.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-file-handler.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-network-communicator.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-database-sync.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-plugin-sync.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-theme-sync.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-media-sync.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-sync.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-admin.php';
-        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-file-handler.php';
     }
     
     public function init() {
