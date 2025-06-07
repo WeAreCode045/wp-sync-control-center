@@ -34,24 +34,36 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
   const [showDbSettings, setShowDbSettings] = React.useState(false);
 
   React.useEffect(() => {
+    console.log('EnvironmentCard config updated:', config);
     setLocalConfig(config);
     setHasChanges(false);
   }, [config]);
 
   const handleInputChange = (field: string, value: string) => {
+    console.log(`Field "${field}" changed to:`, value);
+    
     // Clean application password by removing spaces
     if (field === 'password') {
       value = value.replace(/\s+/g, '');
     }
     
     const newConfig = { ...localConfig, [field]: value };
+    console.log('New local config:', newConfig);
     setLocalConfig(newConfig);
     setHasChanges(true);
   };
 
   const handleSaveConfig = async () => {
-    await onConfigChange(localConfig);
-    setHasChanges(false);
+    console.log('=== SAVING CONFIG ===');
+    console.log('Local config being saved:', localConfig);
+    
+    try {
+      await onConfigChange(localConfig);
+      setHasChanges(false);
+      console.log('Config saved successfully');
+    } catch (error) {
+      console.error('Error saving config:', error);
+    }
   };
 
   const handleTestConnection = async () => {
