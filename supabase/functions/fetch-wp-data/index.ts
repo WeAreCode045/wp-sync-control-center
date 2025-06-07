@@ -27,25 +27,40 @@ const fetchDatabaseTables = async (dbCredentials: {
   let client;
   try {
     console.log('Attempting to connect to database...');
+    console.log(`Host: ${dbCredentials.db_host}, Database: ${dbCredentials.db_name}, User: ${dbCredentials.db_user}`);
+    
+    // Try to parse port from host if included
+    let hostname = dbCredentials.db_host;
+    let port = 3306; // Default MySQL port
+    
+    if (hostname.includes(':')) {
+      const parts = hostname.split(':');
+      hostname = parts[0];
+      port = parseInt(parts[1]) || 3306;
+    }
+    
     client = await new Client().connect({
-      hostname: dbCredentials.db_host,
+      hostname: hostname,
+      port: port,
       username: dbCredentials.db_user,
       password: dbCredentials.db_password,
       db: dbCredentials.db_name,
+      timeout: 10000, // 10 second timeout
     });
 
     console.log('Connected to database successfully');
 
-    // Query to get WordPress table information
+    // Query to get ALL WordPress table information (not just wp_ prefixed)
     const query = `
       SELECT 
         table_name,
         table_rows,
         ROUND(((data_length + index_length) / 1024 / 1024), 2) AS size_mb,
-        engine
+        engine,
+        table_comment
       FROM information_schema.tables 
       WHERE table_schema = ? 
-      AND table_name LIKE 'wp_%'
+      AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `;
 
@@ -55,19 +70,37 @@ const fetchDatabaseTables = async (dbCredentials: {
       name: row[0],
       rows: parseInt(row[1]) || 0,
       size: `${row[2] || 0} MB`,
-      engine: row[3] || 'Unknown'
+      engine: row[3] || 'Unknown',
+      comment: row[4] || ''
     })) || [];
 
-    console.log(`Fetched ${tables.length} database tables`);
+    console.log(`Successfully fetched ${tables.length} database tables`);
+    console.log('Tables found:', tables.map(t => t.name));
     return tables;
 
   } catch (error) {
-    console.error('Database connection error:', error);
+    console.error('Database connection error details:', {
+      message: error.message,
+      name: error.name,
+      code: error.code,
+      errno: error.errno
+    });
+    
+    // If it's a connection timeout or connection refused, provide helpful error info
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED') {
+      console.error('Connection issue - this might be due to:');
+      console.error('1. Incorrect host or port');
+      console.error('2. Firewall blocking the connection');
+      console.error('3. Database server not accepting remote connections');
+      console.error('4. Incorrect credentials');
+    }
+    
     throw new Error(`Database connection failed: ${error.message}`);
   } finally {
     if (client) {
       try {
         await client.close();
+        console.log('Database connection closed');
       } catch (closeError) {
         console.error('Error closing database connection:', closeError);
       }
@@ -184,8 +217,10 @@ const fetchWordPressData = async (credentials: WordPressCredentials) => {
       console.log(`Media count fetch failed:`, mediaError);
     }
 
-    // Fetch database tables (real data if credentials provided, otherwise mock)
+    // Fetch database tables (real data if credentials provided, otherwise try to get from WordPress API)
     let tables = [];
+    let databaseConnectionSuccessful = false;
+    
     if (credentials.db_host && credentials.db_name && credentials.db_user && credentials.db_password) {
       console.log('Attempting to fetch real database tables...');
       try {
@@ -195,27 +230,79 @@ const fetchWordPressData = async (credentials: WordPressCredentials) => {
           db_user: credentials.db_user,
           db_password: credentials.db_password,
         });
+        databaseConnectionSuccessful = true;
         console.log('Successfully fetched real database tables');
       } catch (dbError) {
-        console.error('Failed to fetch database tables, using mock data:', dbError);
-        // Fallback to mock data
-        tables = [
-          { name: 'wp_posts', rows: 150, size: '2.3 MB', engine: 'InnoDB' },
-          { name: 'wp_users', rows: 25, size: '0.1 MB', engine: 'InnoDB' },
-          { name: 'wp_options', rows: 450, size: '1.8 MB', engine: 'InnoDB' },
-          { name: 'wp_postmeta', rows: 800, size: '4.2 MB', engine: 'InnoDB' },
-          { name: 'wp_comments', rows: 300, size: '0.8 MB', engine: 'InnoDB' },
-        ];
+        console.error('Failed to fetch database tables:', dbError.message);
+        console.log('Will try to get table info from WordPress API or use estimated data');
       }
-    } else {
-      console.log('No database credentials provided, using mock table data');
+    }
+    
+    // If direct database connection failed, try to get table info from WordPress or provide estimated data
+    if (!databaseConnectionSuccessful) {
+      console.log('Using estimated table data based on WordPress installation');
+      
+      // Get post count from WordPress API to estimate table sizes
+      let postCount = 0;
+      try {
+        const postsResponse = await fetch(`${baseUrl}/wp-json/wp/v2/posts?per_page=1`, {
+          headers,
+        });
+        if (postsResponse.ok) {
+          const totalHeader = postsResponse.headers.get('X-WP-Total');
+          postCount = totalHeader ? parseInt(totalHeader) : 0;
+        }
+      } catch (error) {
+        console.log('Could not fetch post count, using default estimates');
+      }
+      
+      // Get user count
+      let userCount = 0;
+      try {
+        const usersResponse = await fetch(`${baseUrl}/wp-json/wp/v2/users?per_page=1`, {
+          headers,
+        });
+        if (usersResponse.ok) {
+          const totalHeader = usersResponse.headers.get('X-WP-Total');
+          userCount = totalHeader ? parseInt(totalHeader) : 0;
+        }
+      } catch (error) {
+        console.log('Could not fetch user count, using default estimates');
+      }
+      
+      // Provide more realistic estimated data based on actual counts
       tables = [
-        { name: 'wp_posts', rows: 150, size: '2.3 MB', engine: 'InnoDB' },
-        { name: 'wp_users', rows: 25, size: '0.1 MB', engine: 'InnoDB' },
-        { name: 'wp_options', rows: 450, size: '1.8 MB', engine: 'InnoDB' },
-        { name: 'wp_postmeta', rows: 800, size: '4.2 MB', engine: 'InnoDB' },
-        { name: 'wp_comments', rows: 300, size: '0.8 MB', engine: 'InnoDB' },
+        { name: 'wp_posts', rows: postCount || 150, size: `${Math.max(2.3, (postCount || 150) * 0.015)} MB`, engine: 'InnoDB', comment: 'WordPress posts table' },
+        { name: 'wp_users', rows: userCount || 25, size: `${Math.max(0.1, (userCount || 25) * 0.004)} MB`, engine: 'InnoDB', comment: 'WordPress users table' },
+        { name: 'wp_options', rows: Math.max(450, postCount * 2), size: `${Math.max(1.8, postCount * 0.012)} MB`, engine: 'InnoDB', comment: 'WordPress options table' },
+        { name: 'wp_postmeta', rows: Math.max(800, postCount * 3), size: `${Math.max(4.2, postCount * 0.025)} MB`, engine: 'InnoDB', comment: 'WordPress post metadata table' },
+        { name: 'wp_comments', rows: Math.max(300, postCount * 2), size: `${Math.max(0.8, postCount * 0.005)} MB`, engine: 'InnoDB', comment: 'WordPress comments table' },
+        { name: 'wp_commentmeta', rows: Math.max(50, postCount), size: '0.5 MB', engine: 'InnoDB', comment: 'WordPress comment metadata table' },
+        { name: 'wp_terms', rows: 50, size: '0.2 MB', engine: 'InnoDB', comment: 'WordPress terms table' },
+        { name: 'wp_term_taxonomy', rows: 50, size: '0.2 MB', engine: 'InnoDB', comment: 'WordPress term taxonomy table' },
+        { name: 'wp_term_relationships', rows: Math.max(100, postCount), size: `${Math.max(0.3, postCount * 0.002)} MB`, engine: 'InnoDB', comment: 'WordPress term relationships table' },
+        { name: 'wp_usermeta', rows: Math.max(150, userCount * 6), size: `${Math.max(0.5, userCount * 0.02)} MB`, engine: 'InnoDB', comment: 'WordPress user metadata table' },
       ];
+      
+      // Add plugin-specific tables if plugins are detected
+      if (plugins.length > 0) {
+        plugins.forEach(plugin => {
+          if (plugin.slug && plugin.status === 'active') {
+            // Add common plugin tables based on popular plugins
+            if (plugin.slug.includes('elementor')) {
+              tables.push({ name: 'wp_elementor_library', rows: 20, size: '0.5 MB', engine: 'InnoDB', comment: 'Elementor library table' });
+            }
+            if (plugin.slug.includes('woocommerce')) {
+              tables.push(
+                { name: 'wp_woocommerce_order_items', rows: 100, size: '1.0 MB', engine: 'InnoDB', comment: 'WooCommerce order items' },
+                { name: 'wp_woocommerce_sessions', rows: 50, size: '0.3 MB', engine: 'InnoDB', comment: 'WooCommerce sessions' }
+              );
+            }
+          }
+        });
+      }
+      
+      console.log(`Generated ${tables.length} estimated table entries`);
     }
 
     const result = {
@@ -237,6 +324,7 @@ const fetchWordPressData = async (credentials: WordPressCredentials) => {
       })),
       tables,
       media_count: mediaCount,
+      database_connection_successful: databaseConnectionSuccessful,
     };
 
     console.log('Final result:', result);
