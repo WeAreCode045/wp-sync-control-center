@@ -60,6 +60,7 @@ class WP_Sync_Manager_Core {
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-data.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-sync.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-admin.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-file-handler.php';
     }
     
     public function init() {
@@ -72,6 +73,9 @@ class WP_Sync_Manager_Core {
         update_option('wp_sync_manager_version', WP_SYNC_MANAGER_VERSION);
         update_option('wp_sync_manager_activated', current_time('mysql'));
         
+        // Create sync log table
+        $this->create_sync_log_table();
+        
         // Flush rewrite rules to ensure REST API endpoints work
         flush_rewrite_rules();
     }
@@ -80,5 +84,27 @@ class WP_Sync_Manager_Core {
         // Deactivation tasks
         delete_option('wp_sync_manager_last_sync');
         flush_rewrite_rules();
+    }
+    
+    private function create_sync_log_table() {
+        global $wpdb;
+        
+        $table_name = $wpdb->prefix . 'wp_sync_manager_log';
+        
+        $charset_collate = $wpdb->get_charset_collate();
+        
+        $sql = "CREATE TABLE $table_name (
+            id mediumint(9) NOT NULL AUTO_INCREMENT,
+            operation_type varchar(20) NOT NULL,
+            component_type varchar(20) NOT NULL,
+            component_name varchar(255) NOT NULL,
+            status varchar(20) NOT NULL,
+            message text,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id)
+        ) $charset_collate;";
+        
+        require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
+        dbDelta($sql);
     }
 }
