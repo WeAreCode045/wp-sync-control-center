@@ -52,6 +52,11 @@ serve(async (req) => {
     console.log('Starting WordPress plugin-based sync operation:', syncOperationId)
     console.log('Source:', sourceEnv.url, 'Target:', targetEnv.url)
 
+    // Validate URLs before proceeding
+    if (!sourceEnv.url || !targetEnv.url) {
+      throw new Error(`Missing URLs - Source: ${sourceEnv.url}, Target: ${targetEnv.url}`)
+    }
+
     // Update sync operation status
     await updateSyncProgress(supabase, syncOperationId, 5, 'running', 'Plugin-based sync gestart...')
 
@@ -83,16 +88,18 @@ serve(async (req) => {
     currentProgress = 20
     await updateSyncProgress(supabase, syncOperationId, currentProgress, 'running', 'Source data opgehaald, starten sync...')
 
-    // Prepare sync request payload
+    // Prepare sync request payload with correct parameter names
     const syncPayload = {
       operation_type: 'pull', // We're always pulling from source to target
       components: components,
-      source_url: sourceEnv.url,
-      source_credentials: {
+      target_url: sourceEnv.url, // This is the source URL for pull operations
+      target_credentials: {
         username: sourceEnv.username,
         password: sourceEnv.password
       }
     }
+
+    console.log('Sync payload:', JSON.stringify(syncPayload, null, 2))
 
     // Execute sync on target environment
     console.log('Executing sync on target environment via plugin...')
@@ -136,6 +143,14 @@ serve(async (req) => {
               hasFailures = true
             }
           })
+        } else if (categoryResults && typeof categoryResults === 'object') {
+          // Handle single media result
+          totalCount++
+          if (categoryResults.success) {
+            successCount++
+          } else {
+            hasFailures = true
+          }
         }
       })
     }

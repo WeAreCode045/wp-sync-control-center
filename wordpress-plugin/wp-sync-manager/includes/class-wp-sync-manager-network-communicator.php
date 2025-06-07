@@ -106,16 +106,34 @@ class WP_Sync_Manager_Network_Communicator {
     }
     
     private function build_endpoint_url($base_url, $endpoint_path) {
+        // Enhanced URL validation and building
+        if (empty($base_url)) {
+            error_log("WP Sync Manager: Empty base URL provided");
+            throw new Exception('Empty base URL provided to build_endpoint_url');
+        }
+        
         // Clean up the base URL
-        $base_url = rtrim($base_url, '/');
+        $base_url = rtrim(trim($base_url), '/');
         
         // Ensure we have a valid URL scheme
         if (!preg_match('/^https?:\/\//', $base_url)) {
             $base_url = 'https://' . $base_url;
         }
         
+        // Validate the base URL
+        if (!filter_var($base_url, FILTER_VALIDATE_URL)) {
+            error_log("WP Sync Manager: Invalid base URL format: " . $base_url);
+            throw new Exception('Invalid base URL format: ' . $base_url);
+        }
+        
         // Build the full endpoint URL
         $full_url = $base_url . $endpoint_path;
+        
+        // Final validation of the constructed URL
+        if (!filter_var($full_url, FILTER_VALIDATE_URL)) {
+            error_log("WP Sync Manager: Invalid constructed URL: " . $full_url);
+            throw new Exception('Invalid constructed URL: ' . $full_url);
+        }
         
         // Log the constructed URL for debugging
         error_log("WP Sync Manager: Constructed endpoint URL: " . $full_url);

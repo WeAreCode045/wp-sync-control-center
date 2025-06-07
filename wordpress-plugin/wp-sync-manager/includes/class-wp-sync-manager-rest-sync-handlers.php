@@ -21,10 +21,37 @@ class WP_Sync_Manager_REST_Sync_Handlers {
         
         $params = $request->get_json_params();
         
+        // Log received parameters for debugging
+        error_log("WP Sync Manager REST API: Received parameters: " . print_r($params, true));
+        
         if (!isset($params['operation_type']) || !isset($params['components'])) {
             error_log("WP Sync Manager REST API: Missing required parameters");
-            return new WP_Error('missing_params', 'Missing required parameters', array('status' => 400));
+            return new WP_Error('missing_params', 'Missing required parameters: operation_type and components are required', array('status' => 400));
         }
+        
+        // Validate and sanitize URLs and credentials
+        $target_url = isset($params['target_url']) ? trim($params['target_url']) : '';
+        $target_credentials = isset($params['target_credentials']) ? $params['target_credentials'] : array();
+        
+        // Enhanced URL validation
+        if (empty($target_url)) {
+            error_log("WP Sync Manager REST API: Empty target_url provided");
+            return new WP_Error('missing_target_url', 'Target URL is required for sync operations', array('status' => 400));
+        }
+        
+        // Validate URL format
+        if (!filter_var($target_url, FILTER_VALIDATE_URL)) {
+            error_log("WP Sync Manager REST API: Invalid target_url format: " . $target_url);
+            return new WP_Error('invalid_target_url', 'Invalid target URL format: ' . $target_url, array('status' => 400));
+        }
+        
+        // Validate credentials
+        if (empty($target_credentials['username']) || empty($target_credentials['password'])) {
+            error_log("WP Sync Manager REST API: Missing target credentials");
+            return new WP_Error('missing_credentials', 'Target credentials (username and password) are required', array('status' => 400));
+        }
+        
+        error_log("WP Sync Manager REST API: Validated parameters - Operation: " . $params['operation_type'] . ", Target URL: " . $target_url);
         
         $sync_manager = new WP_Sync_Manager_Sync();
         
@@ -32,8 +59,8 @@ class WP_Sync_Manager_REST_Sync_Handlers {
             $result = $sync_manager->execute_sync(
                 sanitize_text_field($params['operation_type']),
                 $params['components'],
-                isset($params['target_url']) ? $params['target_url'] : '', // Don't sanitize URL here to avoid breaking it
-                isset($params['target_credentials']) ? $params['target_credentials'] : array()
+                $target_url, // Don't sanitize URL here to avoid breaking it
+                $target_credentials
             );
             
             error_log("WP Sync Manager REST API: Sync completed successfully");
