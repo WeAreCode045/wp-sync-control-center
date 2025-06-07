@@ -6,7 +6,9 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { Database, Settings, ChevronDown, ChevronUp } from 'lucide-react';
+import { Textarea } from "@/components/ui/textarea";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Database, Settings, ChevronDown, ChevronUp, Server, Key, Terminal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { WPEnvironment } from '@/types/wordpress';
 
@@ -22,6 +24,13 @@ interface EnvironmentCardProps {
     db_name?: string;
     db_user?: string;
     db_password?: string;
+    ssh_host?: string;
+    ssh_port?: number;
+    ssh_username?: string;
+    ssh_password?: string;
+    ssh_private_key?: string;
+    wp_cli_path?: string;
+    wp_root_path?: string;
   };
   onConfigChange: (config: any) => void;
   variant: 'live' | 'dev';
@@ -32,23 +41,46 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
   const [isTesting, setIsTesting] = React.useState(false);
   const [hasChanges, setHasChanges] = React.useState(false);
   const [showDbSettings, setShowDbSettings] = React.useState(false);
+  const [showSshSettings, setShowSshSettings] = React.useState(false);
+  const [sshAuthMethod, setSshAuthMethod] = React.useState<'password' | 'key'>('password');
 
   React.useEffect(() => {
     console.log('EnvironmentCard config updated:', config);
     setLocalConfig(config);
     setHasChanges(false);
+    
+    // Set SSH auth method based on existing config
+    if (config.ssh_private_key) {
+      setSshAuthMethod('key');
+    } else {
+      setSshAuthMethod('password');
+    }
   }, [config]);
 
-  const handleInputChange = (field: string, value: string) => {
+  const handleInputChange = (field: string, value: string | number) => {
     console.log(`Field "${field}" changed to:`, value);
     
     // Clean application password by removing spaces
     if (field === 'password') {
-      value = value.replace(/\s+/g, '');
+      value = (value as string).replace(/\s+/g, '');
     }
     
     const newConfig = { ...localConfig, [field]: value };
     console.log('New local config:', newConfig);
+    setLocalConfig(newConfig);
+    setHasChanges(true);
+  };
+
+  const handleSshAuthMethodChange = (method: 'password' | 'key') => {
+    setSshAuthMethod(method);
+    
+    // Clear the other auth method when switching
+    const newConfig = {
+      ...localConfig,
+      ssh_password: method === 'password' ? localConfig.ssh_password : '',
+      ssh_private_key: method === 'key' ? localConfig.ssh_private_key : ''
+    };
+    
     setLocalConfig(newConfig);
     setHasChanges(true);
   };
@@ -167,13 +199,148 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
 
         <Separator />
 
+        {/* SSH Configuration Section */}
+        <div className="space-y-4">
+          <Button
+            onClick={() => setShowSshSettings(!showSshSettings)}
+            variant="outline"
+            className="w-full justify-between"
+          >
+            <span className="flex items-center gap-2">
+              <Server className="h-4 w-4" />
+              SSH & WP-CLI Configuration
+            </span>
+            {showSshSettings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+          
+          {showSshSettings && (
+            <div className="space-y-4 pt-2">
+              <p className="text-sm text-muted-foreground">
+                Configure SSH access and WP-CLI settings for advanced WordPress management and file transfers.
+              </p>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-ssh-host`}>SSH Host</Label>
+                  <Input
+                    id={`${variant}-ssh-host`}
+                    placeholder="your-server.com"
+                    value={localConfig.ssh_host || ''}
+                    onChange={(e) => handleInputChange('ssh_host', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Server hostname or IP</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-ssh-port`}>SSH Port</Label>
+                  <Input
+                    id={`${variant}-ssh-port`}
+                    type="number"
+                    placeholder="22"
+                    value={localConfig.ssh_port || 22}
+                    onChange={(e) => handleInputChange('ssh_port', parseInt(e.target.value) || 22)}
+                  />
+                  <p className="text-xs text-muted-foreground">Usually 22</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-ssh-username`}>SSH Username</Label>
+                  <Input
+                    id={`${variant}-ssh-username`}
+                    placeholder="root or ubuntu"
+                    value={localConfig.ssh_username || ''}
+                    onChange={(e) => handleInputChange('ssh_username', e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-wp-cli-path`}>WP-CLI Path</Label>
+                  <Input
+                    id={`${variant}-wp-cli-path`}
+                    placeholder="/usr/local/bin/wp"
+                    value={localConfig.wp_cli_path || '/usr/local/bin/wp'}
+                    onChange={(e) => handleInputChange('wp_cli_path', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Path to WP-CLI binary</p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor={`${variant}-wp-root-path`}>WordPress Root Path</Label>
+                <Input
+                  id={`${variant}-wp-root-path`}
+                  placeholder="/var/www/html"
+                  value={localConfig.wp_root_path || '/var/www/html'}
+                  onChange={(e) => handleInputChange('wp_root_path', e.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">Full path to WordPress installation</p>
+              </div>
+
+              <div className="space-y-3">
+                <Label>SSH Authentication Method</Label>
+                <RadioGroup 
+                  value={sshAuthMethod} 
+                  onValueChange={(value) => handleSshAuthMethodChange(value as 'password' | 'key')}
+                  className="flex gap-4"
+                >
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="password" id={`${variant}-auth-password`} />
+                    <Label htmlFor={`${variant}-auth-password`}>Password</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <RadioGroupItem value="key" id={`${variant}-auth-key`} />
+                    <Label htmlFor={`${variant}-auth-key`}>Private Key</Label>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              {sshAuthMethod === 'password' && (
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-ssh-password`}>SSH Password</Label>
+                  <Input
+                    id={`${variant}-ssh-password`}
+                    type="password"
+                    placeholder="SSH password"
+                    value={localConfig.ssh_password || ''}
+                    onChange={(e) => handleInputChange('ssh_password', e.target.value)}
+                  />
+                </div>
+              )}
+
+              {sshAuthMethod === 'key' && (
+                <div className="space-y-2">
+                  <Label htmlFor={`${variant}-ssh-key`}>SSH Private Key</Label>
+                  <Textarea
+                    id={`${variant}-ssh-key`}
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+-----END OPENSSH PRIVATE KEY-----"
+                    rows={6}
+                    value={localConfig.ssh_private_key || ''}
+                    onChange={(e) => handleInputChange('ssh_private_key', e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Paste your OpenSSH private key here. Ensure it's properly formatted.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <Separator />
+
+        {/* Database Configuration Section */}
         <div className="space-y-4">
           <Button
             onClick={() => setShowDbSettings(!showDbSettings)}
             variant="outline"
             className="w-full justify-between"
           >
-            <span>Database Connection (Optional)</span>
+            <span className="flex items-center gap-2">
+              <Database className="h-4 w-4" />
+              Database Connection (Optional)
+            </span>
             {showDbSettings ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
           

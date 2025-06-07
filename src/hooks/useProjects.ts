@@ -111,6 +111,13 @@ export const useProjects = () => {
       db_name?: string;
       db_user?: string;
       db_password?: string;
+      ssh_host?: string;
+      ssh_port?: number;
+      ssh_username?: string;
+      ssh_password?: string;
+      ssh_private_key?: string;
+      wp_cli_path?: string;
+      wp_root_path?: string;
     }
   ) => {
     try {
@@ -141,6 +148,13 @@ export const useProjects = () => {
         db_name: config.db_name || null,
         db_user: config.db_user || null,
         db_password: config.db_password || null,
+        ssh_host: config.ssh_host || null,
+        ssh_port: config.ssh_port || 22,
+        ssh_username: config.ssh_username || null,
+        ssh_password: config.ssh_password || null,
+        ssh_private_key: config.ssh_private_key || null,
+        wp_cli_path: config.wp_cli_path || '/usr/local/bin/wp',
+        wp_root_path: config.wp_root_path || '/var/www/html',
         updated_at: new Date().toISOString()
       };
       

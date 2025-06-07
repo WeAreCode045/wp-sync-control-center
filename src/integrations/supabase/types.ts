@@ -143,10 +143,17 @@ export type Database = {
           name: string
           password: string
           project_id: string
+          ssh_host: string | null
+          ssh_password: string | null
+          ssh_port: number | null
+          ssh_private_key: string | null
+          ssh_username: string | null
           status: string | null
           updated_at: string
           url: string
           username: string
+          wp_cli_path: string | null
+          wp_root_path: string | null
         }
         Insert: {
           created_at?: string
@@ -160,10 +167,17 @@ export type Database = {
           name: string
           password: string
           project_id: string
+          ssh_host?: string | null
+          ssh_password?: string | null
+          ssh_port?: number | null
+          ssh_private_key?: string | null
+          ssh_username?: string | null
           status?: string | null
           updated_at?: string
           url: string
           username: string
+          wp_cli_path?: string | null
+          wp_root_path?: string | null
         }
         Update: {
           created_at?: string
@@ -177,10 +191,17 @@ export type Database = {
           name?: string
           password?: string
           project_id?: string
+          ssh_host?: string | null
+          ssh_password?: string | null
+          ssh_port?: number | null
+          ssh_private_key?: string | null
+          ssh_username?: string | null
           status?: string | null
           updated_at?: string
           url?: string
           username?: string
+          wp_cli_path?: string | null
+          wp_root_path?: string | null
         }
         Relationships: [
           {
