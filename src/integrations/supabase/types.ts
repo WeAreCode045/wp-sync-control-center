@@ -133,6 +133,10 @@ export type Database = {
       wp_environments: {
         Row: {
           created_at: string
+          db_host: string | null
+          db_name: string | null
+          db_password: string | null
+          db_user: string | null
           environment_type: string
           id: string
           last_connected_at: string | null
@@ -146,6 +150,10 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          db_host?: string | null
+          db_name?: string | null
+          db_password?: string | null
+          db_user?: string | null
           environment_type: string
           id?: string
           last_connected_at?: string | null
@@ -159,6 +167,10 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          db_host?: string | null
+          db_name?: string | null
+          db_password?: string | null
+          db_user?: string | null
           environment_type?: string
           id?: string
           last_connected_at?: string | null

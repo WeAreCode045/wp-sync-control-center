@@ -98,7 +98,16 @@ export const useProjects = () => {
   const updateEnvironment = async (
     projectId: string,
     environmentType: 'live' | 'dev',
-    config: { name: string; url: string; username: string; password: string }
+    config: { 
+      name: string; 
+      url: string; 
+      username: string; 
+      password: string;
+      db_host?: string;
+      db_name?: string;
+      db_user?: string;
+      db_password?: string;
+    }
   ) => {
     try {
       const { data, error } = await supabase
@@ -106,7 +115,14 @@ export const useProjects = () => {
         .upsert({
           project_id: projectId,
           environment_type: environmentType,
-          ...config,
+          name: config.name,
+          url: config.url,
+          username: config.username,
+          password: config.password,
+          db_host: config.db_host || null,
+          db_name: config.db_name || null,
+          db_user: config.db_user || null,
+          db_password: config.db_password || null,
           updated_at: new Date().toISOString()
         })
         .select()
