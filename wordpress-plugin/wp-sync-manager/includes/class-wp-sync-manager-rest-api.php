@@ -1,4 +1,3 @@
-
 <?php
 /**
  * REST API endpoints
@@ -92,8 +91,38 @@ class WP_Sync_Manager_REST_API {
             return true;
         }
         
-        // Check if user has administrator capabilities
-        return current_user_can('manage_options');
+        // Log the authentication attempt
+        error_log("WP Sync Manager REST API: Checking permissions for request");
+        
+        // Check for Basic Authentication first
+        if (isset($_SERVER['HTTP_AUTHORIZATION'])) {
+            $auth_header = $_SERVER['HTTP_AUTHORIZATION'];
+            if (strpos($auth_header, 'Basic ') === 0) {
+                $credentials = base64_decode(substr($auth_header, 6));
+                $parts = explode(':', $credentials, 2);
+                
+                if (count($parts) === 2) {
+                    $username = $parts[0];
+                    $password = $parts[1];
+                    
+                    error_log("WP Sync Manager REST API: Attempting authentication for user: " . $username);
+                    
+                    $user = wp_authenticate($username, $password);
+                    if (!is_wp_error($user) && user_can($user, 'manage_options')) {
+                        wp_set_current_user($user->ID);
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        // Fallback to current user capabilities
+        if (current_user_can('manage_options')) {
+            return true;
+        }
+        
+        error_log("WP Sync Manager REST API: Permission denied");
+        return new WP_Error('rest_forbidden', 'Sorry, you are not allowed to access this resource.', array('status' => 401));
     }
     
     public function handle_sync_request($request) {
@@ -102,9 +131,12 @@ class WP_Sync_Manager_REST_API {
             return new WP_REST_Response(null, 200);
         }
         
+        error_log("WP Sync Manager REST API: Handling sync request");
+        
         $params = $request->get_json_params();
         
         if (!isset($params['operation_type']) || !isset($params['components'])) {
+            error_log("WP Sync Manager REST API: Missing required parameters");
             return new WP_Error('missing_params', 'Missing required parameters', array('status' => 400));
         }
         
@@ -114,11 +146,14 @@ class WP_Sync_Manager_REST_API {
             $result = $sync_manager->execute_sync(
                 sanitize_text_field($params['operation_type']),
                 $params['components'],
-                isset($params['target_url']) ? esc_url_raw($params['target_url']) : '',
+                isset($params['target_url']) ? $params['target_url'] : '', // Don't sanitize URL here to avoid breaking it
                 isset($params['target_credentials']) ? $params['target_credentials'] : array()
             );
+            
+            error_log("WP Sync Manager REST API: Sync completed successfully");
             return rest_ensure_response($result);
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Sync failed - " . $e->getMessage());
             return new WP_Error('sync_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -129,12 +164,15 @@ class WP_Sync_Manager_REST_API {
             return new WP_REST_Response(null, 200);
         }
         
+        error_log("WP Sync Manager REST API: Getting WP data");
+        
         $data_manager = new WP_Sync_Manager_Data();
         
         try {
             $data = $data_manager->get_all_data();
             return rest_ensure_response($data);
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Data fetch failed - " . $e->getMessage());
             return new WP_Error('data_fetch_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -159,6 +197,8 @@ class WP_Sync_Manager_REST_API {
             return new WP_REST_Response(null, 200);
         }
         
+        error_log("WP Sync Manager REST API: Receiving plugin");
+        
         $params = $request->get_json_params();
         
         if (!isset($params['plugin_name']) || !isset($params['file_data'])) {
@@ -174,6 +214,7 @@ class WP_Sync_Manager_REST_API {
                 'message' => 'Plugin installed successfully',
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Plugin install failed - " . $e->getMessage());
             return new WP_Error('plugin_install_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -182,6 +223,8 @@ class WP_Sync_Manager_REST_API {
         if ($request->get_method() === 'OPTIONS') {
             return new WP_REST_Response(null, 200);
         }
+        
+        error_log("WP Sync Manager REST API: Receiving theme");
         
         $params = $request->get_json_params();
         
@@ -198,6 +241,7 @@ class WP_Sync_Manager_REST_API {
                 'message' => 'Theme installed successfully',
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Theme install failed - " . $e->getMessage());
             return new WP_Error('theme_install_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -206,6 +250,8 @@ class WP_Sync_Manager_REST_API {
         if ($request->get_method() === 'OPTIONS') {
             return new WP_REST_Response(null, 200);
         }
+        
+        error_log("WP Sync Manager REST API: Receiving table");
         
         $params = $request->get_json_params();
         
@@ -222,6 +268,7 @@ class WP_Sync_Manager_REST_API {
                 'message' => 'Table imported successfully',
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Table import failed - " . $e->getMessage());
             return new WP_Error('table_import_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -230,6 +277,8 @@ class WP_Sync_Manager_REST_API {
         if ($request->get_method() === 'OPTIONS') {
             return new WP_REST_Response(null, 200);
         }
+        
+        error_log("WP Sync Manager REST API: Receiving media");
         
         $params = $request->get_json_params();
         
@@ -247,6 +296,7 @@ class WP_Sync_Manager_REST_API {
                 'count' => $result['count'],
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Media import failed - " . $e->getMessage());
             return new WP_Error('media_import_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -256,6 +306,8 @@ class WP_Sync_Manager_REST_API {
         if ($request->get_method() === 'OPTIONS') {
             return new WP_REST_Response(null, 200);
         }
+        
+        error_log("WP Sync Manager REST API: Sending plugin");
         
         $params = $request->get_json_params();
         
@@ -272,16 +324,18 @@ class WP_Sync_Manager_REST_API {
             }
             
             $plugin_dir = dirname(WP_PLUGIN_DIR . '/' . $plugin_file);
-            $zip_file = $sync_manager->create_plugin_zip($plugin_dir, $params['plugin_name']);
+            $file_handler = new WP_Sync_Manager_File_Handler();
+            $zip_file = $file_handler->create_zip_from_directory($plugin_dir, $file_handler->get_temp_filename($params['plugin_name'] . '_plugin'));
             
             $file_data = base64_encode(file_get_contents($zip_file));
-            unlink($zip_file);
+            $file_handler->cleanup_temp_file($zip_file);
             
             return rest_ensure_response(array(
                 'plugin_name' => $params['plugin_name'],
                 'file_data' => $file_data,
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Plugin export failed - " . $e->getMessage());
             return new WP_Error('plugin_export_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -290,6 +344,8 @@ class WP_Sync_Manager_REST_API {
         if ($request->get_method() === 'OPTIONS') {
             return new WP_REST_Response(null, 200);
         }
+        
+        error_log("WP Sync Manager REST API: Sending theme");
         
         $params = $request->get_json_params();
         
@@ -303,17 +359,18 @@ class WP_Sync_Manager_REST_API {
                 return new WP_Error('theme_not_found', 'Theme not found', array('status' => 404));
             }
             
-            $sync_manager = new WP_Sync_Manager_Sync();
-            $zip_file = $sync_manager->create_theme_zip($theme_dir, $params['theme_name']);
+            $file_handler = new WP_Sync_Manager_File_Handler();
+            $zip_file = $file_handler->create_zip_from_directory($theme_dir, $file_handler->get_temp_filename($params['theme_name'] . '_theme'));
             
             $file_data = base64_encode(file_get_contents($zip_file));
-            unlink($zip_file);
+            $file_handler->cleanup_temp_file($zip_file);
             
             return rest_ensure_response(array(
                 'theme_name' => $params['theme_name'],
                 'file_data' => $file_data,
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Theme export failed - " . $e->getMessage());
             return new WP_Error('theme_export_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -322,6 +379,8 @@ class WP_Sync_Manager_REST_API {
         if ($request->get_method() === 'OPTIONS') {
             return new WP_REST_Response(null, 200);
         }
+        
+        error_log("WP Sync Manager REST API: Sending table");
         
         $params = $request->get_json_params();
         
@@ -338,6 +397,7 @@ class WP_Sync_Manager_REST_API {
                 'table_sql' => $table_sql,
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Table export failed - " . $e->getMessage());
             return new WP_Error('table_export_failed', $e->getMessage(), array('status' => 500));
         }
     }
@@ -347,20 +407,29 @@ class WP_Sync_Manager_REST_API {
             return new WP_REST_Response(null, 200);
         }
         
+        error_log("WP Sync Manager REST API: Sending media");
+        
         try {
             $sync_manager = new WP_Sync_Manager_Sync();
             $media_files = $sync_manager->get_media_files();
-            $zip_file = $sync_manager->create_media_zip($media_files);
+            
+            $file_handler = new WP_Sync_Manager_File_Handler();
+            $zip_file = $file_handler->get_temp_filename('media_files');
+            
+            $media_sync = new WP_Sync_Manager_Media_Sync();
+            $media_sync->create_media_zip($media_files, $zip_file);
+            
             $media_db_data = $sync_manager->export_media_database_entries();
             
             $file_data = base64_encode(file_get_contents($zip_file));
-            unlink($zip_file);
+            $file_handler->cleanup_temp_file($zip_file);
             
             return rest_ensure_response(array(
                 'file_data' => $file_data,
                 'db_data' => $media_db_data,
             ));
         } catch (Exception $e) {
+            error_log("WP Sync Manager REST API: Media export failed - " . $e->getMessage());
             return new WP_Error('media_export_failed', $e->getMessage(), array('status' => 500));
         }
     }
