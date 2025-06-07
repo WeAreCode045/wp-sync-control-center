@@ -130,6 +130,41 @@ export type Database = {
           },
         ]
       }
+      wp_environment_data: {
+        Row: {
+          created_at: string
+          data: Json
+          environment_id: string
+          fetched_at: string
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          data: Json
+          environment_id: string
+          fetched_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          data?: Json
+          environment_id?: string
+          fetched_at?: string
+          id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wp_environment_data_environment_id_fkey"
+            columns: ["environment_id"]
+            isOneToOne: false
+            referencedRelation: "wp_environments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       wp_environments: {
         Row: {
           created_at: string
