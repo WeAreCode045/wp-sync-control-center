@@ -56,3 +56,21 @@ export interface SyncOperation {
   completed_at?: string;
   error_message?: string;
 }
+
+export interface WordPressData {
+  plugins?: Array<{
+    name: string;
+    version: string;
+    status: 'active' | 'inactive';
+  }>;
+  themes?: Array<{
+    name: string;
+    version: string;
+    status: 'active' | 'inactive';
+  }>;
+  tables?: Array<{
+    name: string;
+    rows: number;
+  }>;
+  media_count?: number;
+}
