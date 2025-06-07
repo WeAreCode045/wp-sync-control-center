@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.50.0';
 
@@ -208,6 +207,8 @@ serve(async (req) => {
     const { sourceEnv, targetEnv, components, syncOperationId }: SyncRequest = await req.json();
 
     console.log('Starting WordPress sync operation:', syncOperationId);
+    console.log('Source environment:', { url: sourceEnv.url, username: sourceEnv.username });
+    console.log('Target environment:', { url: targetEnv.url, username: targetEnv.username });
 
     // Update progress helper
     const updateProgress = async (progress: SyncProgress) => {
@@ -221,28 +222,69 @@ serve(async (req) => {
         .eq('id', syncOperationId);
     };
 
-    // Step 1: Validate connections
+    // Step 1: Validate connections with detailed error reporting
     await updateProgress({ step: 'validation', progress: 5, message: 'Validating WordPress connections...' });
     
-    const sourceAuth = btoa(`${sourceEnv.username}:${sourceEnv.password}`);
-    const targetAuth = btoa(`${targetEnv.username}:${targetEnv.password}`);
+    // Clean and prepare credentials
+    const sourceAuth = btoa(`${sourceEnv.username}:${sourceEnv.password.replace(/\s+/g, '')}`);
+    const targetAuth = btoa(`${targetEnv.username}:${targetEnv.password.replace(/\s+/g, '')}`);
 
-    // Test source connection
-    const sourceTest = await fetch(`${sourceEnv.url}/wp-json/wp/v2/users/me`, {
-      headers: { 'Authorization': `Basic ${sourceAuth}` }
-    });
-    
-    if (!sourceTest.ok) {
-      throw new Error(`Source WordPress connection failed: ${sourceTest.statusText}`);
+    // Test source connection with detailed error handling
+    console.log(`Testing source connection to: ${sourceEnv.url}/wp-json/wp/v2/users/me`);
+    try {
+      const sourceTest = await fetch(`${sourceEnv.url}/wp-json/wp/v2/users/me`, {
+        headers: { 
+          'Authorization': `Basic ${sourceAuth}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log(`Source response status: ${sourceTest.status}`);
+      if (!sourceTest.ok) {
+        const errorText = await sourceTest.text();
+        console.log(`Source error response: ${errorText}`);
+        throw new Error(`Source WordPress connection failed: ${sourceTest.status} ${sourceTest.statusText} - ${errorText}`);
+      }
+      
+      const sourceUser = await sourceTest.json();
+      console.log(`Source connection successful for user: ${sourceUser.name || sourceUser.username || 'Unknown'}`);
+    } catch (error) {
+      console.error('Source connection error:', error);
+      throw new Error(`Source WordPress connection failed: ${error.message}`);
     }
 
-    // Test target connection
-    const targetTest = await fetch(`${targetEnv.url}/wp-json/wp/v2/users/me`, {
-      headers: { 'Authorization': `Basic ${targetAuth}` }
-    });
-    
-    if (!targetTest.ok) {
-      throw new Error(`Target WordPress connection failed: ${targetTest.statusText}`);
+    // Test target connection with detailed error handling
+    console.log(`Testing target connection to: ${targetEnv.url}/wp-json/wp/v2/users/me`);
+    try {
+      const targetTest = await fetch(`${targetEnv.url}/wp-json/wp/v2/users/me`, {
+        headers: { 
+          'Authorization': `Basic ${targetAuth}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log(`Target response status: ${targetTest.status}`);
+      if (!targetTest.ok) {
+        const errorText = await targetTest.text();
+        console.log(`Target error response: ${errorText}`);
+        
+        if (targetTest.status === 401) {
+          throw new Error(`Target WordPress authentication failed. Please check:
+1. Username is correct
+2. Application Password is valid and properly formatted
+3. Application Passwords are enabled on the WordPress site
+4. User has sufficient permissions
+Status: ${targetTest.status} - Response: ${errorText}`);
+        }
+        
+        throw new Error(`Target WordPress connection failed: ${targetTest.status} ${targetTest.statusText} - ${errorText}`);
+      }
+      
+      const targetUser = await targetTest.json();
+      console.log(`Target connection successful for user: ${targetUser.name || targetUser.username || 'Unknown'}`);
+    } catch (error) {
+      console.error('Target connection error:', error);
+      throw new Error(`Target WordPress connection failed: ${error.message}`);
     }
 
     await updateProgress({ step: 'validation', progress: 10, message: 'WordPress connections validated' });
@@ -456,17 +498,23 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     );
 
-    // Update sync operation with error
-    if (req.json) {
-      const { syncOperationId } = await req.json();
-      await supabase
-        .from('sync_operations')
-        .update({ 
-          status: 'failed',
-          error_message: error.message,
-          completed_at: new Date().toISOString()
-        })
-        .eq('id', syncOperationId);
+    // Get syncOperationId from request body for error handling
+    try {
+      const body = await req.json();
+      const { syncOperationId } = body;
+      
+      if (syncOperationId) {
+        await supabase
+          .from('sync_operations')
+          .update({ 
+            status: 'failed',
+            error_message: error.message,
+            completed_at: new Date().toISOString()
+          })
+          .eq('id', syncOperationId);
+      }
+    } catch (parseError) {
+      console.error('Failed to parse request body for error handling:', parseError);
     }
 
     return new Response(JSON.stringify({ 
