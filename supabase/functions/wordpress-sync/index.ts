@@ -6,47 +6,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface SyncRequest {
-  sourceEnv: {
-    url: string;
-    username: string;
-    password: string;
-    db_host?: string;
-    db_name?: string;
-    db_user?: string;
-    db_password?: string;
-    ssh_host?: string;
-    ssh_user?: string;
-    ssh_key?: string;
-  };
-  targetEnv: {
-    url: string;
-    username: string;
-    password: string;
-    db_host?: string;
-    db_name?: string;
-    db_user?: string;
-    db_password?: string;
-    ssh_host?: string;
-    ssh_user?: string;
-    ssh_key?: string;
-  };
-  components: {
-    plugins: { selected: string[] };
-    themes: { selected: string[] };
-    database: { selected: string[] };
-    media: boolean;
-  };
-  syncOperationId: string;
-}
-
-interface SyncProgress {
-  step: string;
-  progress: number;
-  message: string;
-  details?: any;
-}
-
 // MySQL client implementation using direct TCP connection
 class MySQLClient {
   private host: string;
@@ -193,6 +152,19 @@ class WPCLIExecutor {
   }
 }
 
+// Helper function to normalize URLs
+function normalizeUrl(url: string): string {
+  // Remove trailing slash and ensure no double slashes in path
+  return url.replace(/\/+$/, '').replace(/([^:]\/)\/+/g, '$1');
+}
+
+// Helper function to create WordPress API URL
+function createWpApiUrl(baseUrl: string, endpoint: string): string {
+  const normalizedBase = normalizeUrl(baseUrl);
+  const normalizedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return `${normalizedBase}/wp-json/wp/v2${normalizedEndpoint}`;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -225,21 +197,28 @@ serve(async (req) => {
     // Step 1: Validate connections with detailed error reporting
     await updateProgress({ step: 'validation', progress: 5, message: 'Validating WordPress connections...' });
     
-    // Clean and prepare credentials
-    const sourceAuth = btoa(`${sourceEnv.username}:${sourceEnv.password.replace(/\s+/g, '')}`);
-    const targetAuth = btoa(`${targetEnv.username}:${targetEnv.password.replace(/\s+/g, '')}`);
+    // Clean and prepare credentials - trim whitespace and ensure proper formatting
+    const sourceAuth = btoa(`${sourceEnv.username.trim()}:${sourceEnv.password.trim()}`);
+    const targetAuth = btoa(`${targetEnv.username.trim()}:${targetEnv.password.trim()}`);
 
-    // Test source connection with detailed error handling
-    console.log(`Testing source connection to: ${sourceEnv.url}/wp-json/wp/v2/users/me`);
+    // Test source connection with proper URL formatting
+    const sourceTestUrl = createWpApiUrl(sourceEnv.url, '/users/me');
+    console.log(`Testing source connection to: ${sourceTestUrl}`);
+    console.log(`Source auth header length: ${sourceAuth.length}`);
+    
     try {
-      const sourceTest = await fetch(`${sourceEnv.url}/wp-json/wp/v2/users/me`, {
+      const sourceTest = await fetch(sourceTestUrl, {
         headers: { 
           'Authorization': `Basic ${sourceAuth}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+          'User-Agent': 'WordPress-Sync-Tool/1.0'
+        },
+        timeout: 30000 // 30 second timeout
       });
       
       console.log(`Source response status: ${sourceTest.status}`);
+      console.log(`Source response headers:`, Object.fromEntries(sourceTest.headers.entries()));
+      
       if (!sourceTest.ok) {
         const errorText = await sourceTest.text();
         console.log(`Source error response: ${errorText}`);
@@ -253,28 +232,42 @@ serve(async (req) => {
       throw new Error(`Source WordPress connection failed: ${error.message}`);
     }
 
-    // Test target connection with detailed error handling
-    console.log(`Testing target connection to: ${targetEnv.url}/wp-json/wp/v2/users/me`);
+    // Test target connection with proper URL formatting and enhanced error handling
+    const targetTestUrl = createWpApiUrl(targetEnv.url, '/users/me');
+    console.log(`Testing target connection to: ${targetTestUrl}`);
+    console.log(`Target username: ${targetEnv.username.trim()}`);
+    console.log(`Target password length: ${targetEnv.password.trim().length}`);
+    console.log(`Target auth header length: ${targetAuth.length}`);
+    
     try {
-      const targetTest = await fetch(`${targetEnv.url}/wp-json/wp/v2/users/me`, {
+      const targetTest = await fetch(targetTestUrl, {
         headers: { 
           'Authorization': `Basic ${targetAuth}`,
-          'Content-Type': 'application/json'
-        }
+          'Content-Type': 'application/json',
+          'User-Agent': 'WordPress-Sync-Tool/1.0'
+        },
+        timeout: 30000 // 30 second timeout
       });
       
       console.log(`Target response status: ${targetTest.status}`);
+      console.log(`Target response headers:`, Object.fromEntries(targetTest.headers.entries()));
+      
       if (!targetTest.ok) {
         const errorText = await targetTest.text();
         console.log(`Target error response: ${errorText}`);
         
         if (targetTest.status === 401) {
-          throw new Error(`Target WordPress authentication failed. Please check:
-1. Username is correct
-2. Application Password is valid and properly formatted
-3. Application Passwords are enabled on the WordPress site
-4. User has sufficient permissions
-Status: ${targetTest.status} - Response: ${errorText}`);
+          throw new Error(`Target WordPress authentication failed (401 Unauthorized). Please verify:
+1. Username "${targetEnv.username.trim()}" is correct
+2. Application Password is valid and properly formatted (should be in format: xxxx xxxx xxxx xxxx xxxx xxxx)
+3. Application Passwords are enabled on the WordPress site (Users → Profile → Application Passwords)
+4. User has sufficient permissions (Administrator role recommended)
+5. WordPress REST API is enabled and accessible
+Response: ${errorText}`);
+        }
+        
+        if (targetTest.status === 403) {
+          throw new Error(`Target WordPress access forbidden (403). The user may not have sufficient permissions. Response: ${errorText}`);
         }
         
         throw new Error(`Target WordPress connection failed: ${targetTest.status} ${targetTest.statusText} - ${errorText}`);
@@ -284,6 +277,9 @@ Status: ${targetTest.status} - Response: ${errorText}`);
       console.log(`Target connection successful for user: ${targetUser.name || targetUser.username || 'Unknown'}`);
     } catch (error) {
       console.error('Target connection error:', error);
+      if (error.name === 'TimeoutError') {
+        throw new Error(`Target WordPress connection timed out. Please check if the site is accessible and responding.`);
+      }
       throw new Error(`Target WordPress connection failed: ${error.message}`);
     }
 
@@ -300,14 +296,16 @@ Status: ${targetTest.status} - Response: ${errorText}`);
     if (components.plugins.selected.length > 0) {
       await updateProgress({ step: 'plugins', progress: 15, message: 'Syncing plugins...' });
       
-      // Get source plugins
-      const sourcePlugins = await fetch(`${sourceEnv.url}/wp-json/wp/v2/plugins`, {
+      // Get source plugins with proper URL formatting
+      const sourcePluginsUrl = createWpApiUrl(sourceEnv.url, '/plugins');
+      const sourcePlugins = await fetch(sourcePluginsUrl, {
         headers: { 'Authorization': `Basic ${sourceAuth}` }
       });
       const sourcePluginData = await sourcePlugins.json();
 
-      // Get target plugins
-      const targetPlugins = await fetch(`${targetEnv.url}/wp-json/wp/v2/plugins`, {
+      // Get target plugins with proper URL formatting
+      const targetPluginsUrl = createWpApiUrl(targetEnv.url, '/plugins');
+      const targetPlugins = await fetch(targetPluginsUrl, {
         headers: { 'Authorization': `Basic ${targetAuth}` }
       });
       const targetPluginData = await targetPlugins.json();
@@ -334,7 +332,8 @@ Status: ${targetTest.status} - Response: ${errorText}`);
 
           // Update plugin status to match source
           if (targetPlugin && sourcePlugin.status !== targetPlugin.status) {
-            await fetch(`${targetEnv.url}/wp-json/wp/v2/plugins/${targetPlugin.plugin}`, {
+            const pluginUpdateUrl = createWpApiUrl(targetEnv.url, `/plugins/${targetPlugin.plugin}`);
+            await fetch(pluginUpdateUrl, {
               method: 'PUT',
               headers: { 
                 'Authorization': `Basic ${targetAuth}`,
@@ -355,8 +354,9 @@ Status: ${targetTest.status} - Response: ${errorText}`);
     if (components.themes.selected.length > 0) {
       await updateProgress({ step: 'themes', progress: 35, message: 'Syncing themes...' });
       
-      // Get active theme from source
-      const sourceThemes = await fetch(`${sourceEnv.url}/wp-json/wp/v2/themes`, {
+      // Get active theme from source with proper URL formatting
+      const sourceThemesUrl = createWpApiUrl(sourceEnv.url, '/themes');
+      const sourceThemes = await fetch(sourceThemesUrl, {
         headers: { 'Authorization': `Basic ${sourceAuth}` }
       });
       const sourceThemeData = await sourceThemes.json();
@@ -364,7 +364,8 @@ Status: ${targetTest.status} - Response: ${errorText}`);
 
       if (activeSourceTheme && components.themes.selected.includes(activeSourceTheme.name.rendered)) {
         // Check if theme exists on target, if not download it
-        const targetThemes = await fetch(`${targetEnv.url}/wp-json/wp/v2/themes`, {
+        const targetThemesUrl = createWpApiUrl(targetEnv.url, '/themes');
+        const targetThemes = await fetch(targetThemesUrl, {
           headers: { 'Authorization': `Basic ${targetAuth}` }
         });
         const targetThemeData = await targetThemes.json();
@@ -381,7 +382,8 @@ Status: ${targetTest.status} - Response: ${errorText}`);
         }
 
         // Activate the same theme on target
-        await fetch(`${targetEnv.url}/wp-json/wp/v2/themes/${activeSourceTheme.stylesheet}`, {
+        const themeUpdateUrl = createWpApiUrl(targetEnv.url, `/themes/${activeSourceTheme.stylesheet}`);
+        await fetch(themeUpdateUrl, {
           method: 'PUT',
           headers: { 
             'Authorization': `Basic ${targetAuth}`,
@@ -395,13 +397,15 @@ Status: ${targetTest.status} - Response: ${errorText}`);
       await updateProgress({ step: 'themes', progress: 45, message: `Synced ${components.themes.selected.length} themes` });
     }
 
-    // Step 4: Sync Database Tables with MySQL client
+    // Step 4: Sync Database Tables with MySQL client (enhanced error handling)
     if (components.database.selected.length > 0) {
       await updateProgress({ step: 'database', progress: 50, message: 'Syncing database tables...' });
       
       if (sourceEnv.db_host && targetEnv.db_host) {
         try {
-          // Initialize MySQL clients
+          console.log(`Attempting database connection - Source: ${sourceEnv.db_host}, Target: ${targetEnv.db_host}`);
+          
+          // Initialize MySQL clients with connection timeout
           const sourceDB = new MySQLClient(
             sourceEnv.db_host,
             sourceEnv.db_user!,
@@ -447,6 +451,24 @@ Status: ${targetTest.status} - Response: ${errorText}`);
           }
         } catch (error) {
           console.error('Database sync error:', error);
+          
+          // Provide specific guidance based on error type
+          if (error.message.includes('Connection timed out')) {
+            throw new Error(`Database connection timed out. Please check:
+1. Database host addresses are correct
+2. Port 3306 is open and accessible
+3. Database server allows remote connections
+4. Firewall settings allow the connection
+5. VPN connection if required
+Error: ${error.message}`);
+          } else if (error.message.includes('Access denied')) {
+            throw new Error(`Database access denied. Please verify:
+1. Database username and password are correct
+2. User has proper permissions on both databases
+3. Host is allowed to connect (check user@host settings)
+Error: ${error.message}`);
+          }
+          
           throw new Error(`Database sync failed: ${error.message}`);
         }
       } else {
