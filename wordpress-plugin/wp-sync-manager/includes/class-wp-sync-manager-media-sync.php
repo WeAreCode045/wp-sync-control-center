@@ -12,6 +12,8 @@ if (!defined('ABSPATH')) {
 class WP_Sync_Manager_Media_Sync {
     
     public function sync_media($operation_type, $target_url, $target_credentials) {
+        error_log("WP Sync Manager Media Sync: Starting media sync - Operation: {$operation_type}, Target URL: {$target_url}");
+        
         try {
             if ($operation_type === 'push') {
                 $result = $this->push_media($target_url, $target_credentials);
@@ -19,12 +21,15 @@ class WP_Sync_Manager_Media_Sync {
                 $result = $this->pull_media($target_url, $target_credentials);
             }
             
+            error_log("WP Sync Manager Media Sync: Media sync completed successfully");
+            
             return array(
                 'success' => true,
                 'message' => 'Media files synced successfully',
                 'count' => $result['count'] ?? 0,
             );
         } catch (Exception $e) {
+            error_log("WP Sync Manager Media Sync: Media sync failed: " . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'Failed to sync media: ' . $e->getMessage(),
@@ -33,6 +38,8 @@ class WP_Sync_Manager_Media_Sync {
     }
     
     private function push_media($target_url, $target_credentials) {
+        error_log("WP Sync Manager Media Sync: Pushing media to {$target_url}");
+        
         $upload_dir = wp_upload_dir();
         $media_files = $this->get_media_files();
         
@@ -47,6 +54,8 @@ class WP_Sync_Manager_Media_Sync {
     }
     
     private function pull_media($target_url, $target_credentials) {
+        error_log("WP Sync Manager Media Sync: Pulling media from {$target_url}");
+        
         $communicator = new WP_Sync_Manager_Network_Communicator();
         $media_data = $communicator->request_media_from_target($target_url, $target_credentials);
         return $this->install_media_from_data($media_data);
@@ -78,7 +87,9 @@ class WP_Sync_Manager_Media_Sync {
         return $media_files;
     }
     
-    private function create_media_zip($media_files, $zip_filename) {
+    public function create_media_zip($media_files, $zip_filename) {
+        error_log("WP Sync Manager Media Sync: Creating media zip with " . count($media_files) . " files");
+        
         $zip = new ZipArchive();
         
         if ($zip->open($zip_filename, ZipArchive::CREATE) !== TRUE) {
@@ -90,11 +101,16 @@ class WP_Sync_Manager_Media_Sync {
         }
         
         $zip->close();
+        
+        error_log("WP Sync Manager Media Sync: Media zip created successfully");
+        
         return $zip_filename;
     }
     
     public function export_media_database_entries() {
         global $wpdb;
+        
+        error_log("WP Sync Manager Media Sync: Exporting media database entries");
         
         // Export attachment posts and their metadata
         $sql = "SELECT * FROM {$wpdb->posts} WHERE post_type = 'attachment'";
@@ -105,6 +121,8 @@ class WP_Sync_Manager_Media_Sync {
         )";
         $metadata = $wpdb->get_results($metadata_sql, ARRAY_A);
         
+        error_log("WP Sync Manager Media Sync: Exported " . count($attachments) . " attachments and " . count($metadata) . " metadata entries");
+        
         return array(
             'attachments' => $attachments,
             'metadata' => $metadata,
@@ -112,6 +130,8 @@ class WP_Sync_Manager_Media_Sync {
     }
     
     public function install_media_from_data($media_data) {
+        error_log("WP Sync Manager Media Sync: Installing media from data");
+        
         $upload_dir = wp_upload_dir();
         
         // Extract media files
@@ -126,11 +146,15 @@ class WP_Sync_Manager_Media_Sync {
         // Import database entries
         $this->import_media_database_entries($media_data['db_data']);
         
+        error_log("WP Sync Manager Media Sync: Media installation completed");
+        
         return array('count' => count($media_data['db_data']['attachments']));
     }
     
     private function import_media_database_entries($db_data) {
         global $wpdb;
+        
+        error_log("WP Sync Manager Media Sync: Importing media database entries");
         
         // Import attachment posts
         foreach ($db_data['attachments'] as $attachment) {
@@ -157,5 +181,7 @@ class WP_Sync_Manager_Media_Sync {
                 $wpdb->insert($wpdb->postmeta, $meta);
             }
         }
+        
+        error_log("WP Sync Manager Media Sync: Database entries imported successfully");
     }
 }
