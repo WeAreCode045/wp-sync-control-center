@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,6 +27,11 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [wpData, setWpData] = React.useState<{ live?: WordPressData; dev?: WordPressData }>({});
   const [loadingData, setLoadingData] = React.useState(false);
+  const [syncProgress, setSyncProgress] = React.useState<{
+    step: string;
+    progress: number;
+    message: string;
+  } | null>(null);
 
   const fetchWordPressData = async (environment: 'live' | 'dev') => {
     const config = environments[environment];
@@ -117,14 +121,15 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
   };
 
   const handlePull = async () => {
-    console.log('Pulling from live to dev:', selectedOptions);
+    console.log('Starting real pull operation:', selectedOptions);
     setIsProcessing(true);
+    setSyncProgress({ step: 'initializing', progress: 0, message: 'Initializing sync...' });
     
     try {
-      // Create sync operation record
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
+      // Create sync operation record
       const { data: syncOp, error } = await supabase
         .from('sync_operations')
         .insert([{
@@ -141,26 +146,75 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
 
       if (error) throw error;
 
-      // Simulate the pull process
-      setTimeout(async () => {
-        // Update sync operation status
-        await supabase
-          .from('sync_operations')
-          .update({ 
-            status: 'completed', 
-            progress: 100,
-            completed_at: new Date().toISOString()
-          })
-          .eq('id', syncOp.id);
+      // Call the real sync function
+      const { data: syncResult, error: syncError } = await supabase.functions.invoke('wordpress-sync', {
+        body: {
+          sourceEnv: environments.live,
+          targetEnv: environments.dev,
+          components: selectedOptions,
+          syncOperationId: syncOp.id
+        }
+      });
 
-        setIsProcessing(false);
-        toast({
-          title: "Pull Complete",
-          description: "Successfully pulled data from live to development environment.",
-        });
-      }, 3000);
+      if (syncError) throw syncError;
+
+      // Poll for progress updates
+      const progressInterval = setInterval(async () => {
+        const { data: operation } = await supabase
+          .from('sync_operations')
+          .select('progress, status, error_message')
+          .eq('id', syncOp.id)
+          .single();
+
+        if (operation) {
+          setSyncProgress({
+            step: operation.status,
+            progress: operation.progress || 0,
+            message: operation.status === 'completed' 
+              ? 'Sync completed successfully!'
+              : operation.status === 'failed'
+              ? `Sync failed: ${operation.error_message}`
+              : `Progress: ${operation.progress}%`
+          });
+
+          if (operation.status === 'completed' || operation.status === 'failed') {
+            clearInterval(progressInterval);
+            setIsProcessing(false);
+            setSyncProgress(null);
+            
+            if (operation.status === 'completed') {
+              toast({
+                title: "Pull Complete",
+                description: "Successfully pulled data from live to development environment.",
+              });
+            } else {
+              toast({
+                title: "Pull Failed",
+                description: operation.error_message || "An error occurred during sync",
+                variant: "destructive",
+              });
+            }
+          }
+        }
+      }, 2000);
+
+      // Set timeout to stop polling after 10 minutes
+      setTimeout(() => {
+        clearInterval(progressInterval);
+        if (isProcessing) {
+          setIsProcessing(false);
+          setSyncProgress(null);
+          toast({
+            title: "Sync Timeout",
+            description: "The sync operation is taking longer than expected. Please check the logs.",
+            variant: "destructive",
+          });
+        }
+      }, 600000);
+
     } catch (error: any) {
       setIsProcessing(false);
+      setSyncProgress(null);
       toast({
         title: "Pull Failed",
         description: error.message,
@@ -170,8 +224,9 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
   };
 
   const handlePush = async () => {
-    console.log('Pushing from dev to live:', selectedOptions);
+    console.log('Starting real push operation:', selectedOptions);
     setIsProcessing(true);
+    setSyncProgress({ step: 'initializing', progress: 0, message: 'Initializing push...' });
     
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -206,7 +261,6 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
             ]
           };
           
-          // Create conflict record
           await supabase
             .from('sync_conflicts')
             .insert([{
@@ -217,28 +271,73 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
             }]);
           
           setIsProcessing(false);
+          setSyncProgress(null);
           onConflictDetected(mockConflicts);
         }, 2000);
       } else {
-        setTimeout(async () => {
-          await supabase
-            .from('sync_operations')
-            .update({ 
-              status: 'completed', 
-              progress: 100,
-              completed_at: new Date().toISOString()
-            })
-            .eq('id', syncOp.id);
+        // Call real sync function for push
+        const { data: syncResult, error: syncError } = await supabase.functions.invoke('wordpress-sync', {
+          body: {
+            sourceEnv: environments.dev,
+            targetEnv: environments.live,
+            components: selectedOptions,
+            syncOperationId: syncOp.id
+          }
+        });
 
-          setIsProcessing(false);
-          toast({
-            title: "Push Complete",
-            description: "Successfully pushed data from development to live environment.",
-          });
-        }, 3000);
+        if (syncError) throw syncError;
+
+        // Same progress polling logic as pull
+        const progressInterval = setInterval(async () => {
+          const { data: operation } = await supabase
+            .from('sync_operations')
+            .select('progress, status, error_message')
+            .eq('id', syncOp.id)
+            .single();
+
+          if (operation) {
+            setSyncProgress({
+              step: operation.status,
+              progress: operation.progress || 0,
+              message: operation.status === 'completed' 
+                ? 'Push completed successfully!'
+                : operation.status === 'failed'
+                ? `Push failed: ${operation.error_message}`
+                : `Progress: ${operation.progress}%`
+            });
+
+            if (operation.status === 'completed' || operation.status === 'failed') {
+              clearInterval(progressInterval);
+              setIsProcessing(false);
+              setSyncProgress(null);
+              
+              if (operation.status === 'completed') {
+                toast({
+                  title: "Push Complete",
+                  description: "Successfully pushed data from development to live environment.",
+                });
+              } else {
+                toast({
+                  title: "Push Failed",
+                  description: operation.error_message || "An error occurred during sync",
+                  variant: "destructive",
+                });
+              }
+            }
+          }
+        }, 2000);
+
+        setTimeout(() => {
+          clearInterval(progressInterval);
+          if (isProcessing) {
+            setIsProcessing(false);
+            setSyncProgress(null);
+          }
+        }, 600000);
       }
     } catch (error: any) {
       setIsProcessing(false);
+      setSyncProgress(null);
       toast({
         title: "Push Failed",
         description: error.message,
@@ -369,7 +468,7 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
                         checked={selectedOptions.database.selected.includes(table)}
                         onCheckedChange={() => handleOptionChange('database', 'item', table)}
                       />
-                      <label htmlFor={`table-${table}`} className="text-sm font-mono text-xs">{table}</label>
+                      <label htmlFor={`table-${table}`} className="text-mono text-xs">{table}</label>
                     </div>
                   ))}
                 </div>
@@ -427,7 +526,29 @@ const ActionCenter = ({ currentProject, environments, onConflictDetected }: Acti
         </Button>
       </div>
 
-      {isProcessing && (
+      {syncProgress && (
+        <Card>
+          <CardContent className="py-6">
+            <div className="space-y-4">
+              <div className="flex items-center justify-center space-x-2">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                <span className="font-medium">{syncProgress.message}</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-primary h-2 rounded-full transition-all duration-500" 
+                  style={{ width: `${syncProgress.progress}%` }}
+                ></div>
+              </div>
+              <div className="text-center text-sm text-muted-foreground">
+                {syncProgress.progress}% complete
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {isProcessing && !syncProgress && (
         <Card>
           <CardContent className="py-6">
             <div className="flex items-center justify-center space-x-2">
