@@ -1,3 +1,4 @@
+
 <?php
 /**
  * Core plugin functionality
@@ -55,7 +56,16 @@ class WP_Sync_Manager_Core {
     }
     
     private function load_includes() {
+        // Load REST handler classes first
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-permissions.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-sync-handlers.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-receive-handlers.php';
+        require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-send-handlers.php';
+        
+        // Then load the REST API class
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-rest-api.php';
+        
+        // Load other classes
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-data.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-file-handler.php';
         require_once WP_SYNC_MANAGER_PLUGIN_DIR . 'includes/class-wp-sync-manager-ssh-handler.php';
