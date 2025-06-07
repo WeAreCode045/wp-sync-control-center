@@ -28,6 +28,11 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
   }, [config]);
 
   const handleInputChange = (field: string, value: string) => {
+    // Clean application password by removing spaces
+    if (field === 'password') {
+      value = value.replace(/\s+/g, '');
+    }
+    
     const newConfig = { ...localConfig, [field]: value };
     setLocalConfig(newConfig);
     setHasChanges(true);
@@ -124,14 +129,17 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor={`${variant}-password`}>Password</Label>
+          <Label htmlFor={`${variant}-password`}>Application Password</Label>
           <Input
             id={`${variant}-password`}
             type="password"
-            placeholder="••••••••"
+            placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
             value={localConfig.password || ''}
             onChange={(e) => handleInputChange('password', e.target.value)}
           />
+          <p className="text-xs text-muted-foreground">
+            Use a WordPress Application Password. Spaces will be automatically removed.
+          </p>
         </div>
 
         <div className="flex gap-2">

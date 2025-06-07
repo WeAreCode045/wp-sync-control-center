@@ -17,36 +17,112 @@ const fetchWordPressData = async (credentials: WordPressCredentials) => {
   const { url, username, password } = credentials;
   const baseUrl = url.replace(/\/$/, '');
   
-  // Create basic auth header
-  const auth = btoa(`${username}:${password}`);
+  // Clean up application password by removing spaces
+  const cleanPassword = password.replace(/\s+/g, '');
+  console.log(`Attempting to connect to: ${baseUrl}`);
+  console.log(`Username: ${username}`);
+  console.log(`Password length: ${cleanPassword.length}`);
+  
+  // Create basic auth header with cleaned password
+  const auth = btoa(`${username}:${cleanPassword}`);
   const headers = {
     'Authorization': `Basic ${auth}`,
     'Content-Type': 'application/json',
   };
 
   try {
+    // Test basic connectivity first
+    console.log('Testing basic REST API connectivity...');
+    const testResponse = await fetch(`${baseUrl}/wp-json/wp/v2`, {
+      headers,
+    });
+    
+    console.log(`Test response status: ${testResponse.status}`);
+    if (!testResponse.ok) {
+      const testText = await testResponse.text();
+      console.log(`Test response body: ${testText}`);
+      throw new Error(`WordPress REST API not accessible: ${testResponse.status} - ${testText}`);
+    }
+
     // Fetch plugins
+    console.log('Fetching plugins...');
     const pluginsResponse = await fetch(`${baseUrl}/wp-json/wp/v2/plugins`, {
       headers,
     });
     
+    console.log(`Plugins response status: ${pluginsResponse.status}`);
     let plugins = [];
     if (pluginsResponse.ok) {
-      plugins = await pluginsResponse.json();
+      const pluginsData = await pluginsResponse.json();
+      console.log(`Plugins data received:`, pluginsData);
+      plugins = pluginsData;
+    } else {
+      const pluginsError = await pluginsResponse.text();
+      console.log(`Plugins error: ${pluginsError}`);
+      
+      // Try alternative endpoint for plugins
+      console.log('Trying alternative plugins endpoint...');
+      try {
+        const altPluginsResponse = await fetch(`${baseUrl}/wp-json/wp/v2/plugins?status=all`, {
+          headers,
+        });
+        if (altPluginsResponse.ok) {
+          plugins = await altPluginsResponse.json();
+          console.log(`Alternative plugins data:`, plugins);
+        }
+      } catch (altError) {
+        console.log(`Alternative plugins endpoint failed:`, altError);
+      }
     }
 
     // Fetch themes
+    console.log('Fetching themes...');
     const themesResponse = await fetch(`${baseUrl}/wp-json/wp/v2/themes`, {
       headers,
     });
     
+    console.log(`Themes response status: ${themesResponse.status}`);
     let themes = [];
     if (themesResponse.ok) {
-      themes = await themesResponse.json();
+      const themesData = await themesResponse.json();
+      console.log(`Themes data received:`, themesData);
+      themes = themesData;
+    } else {
+      const themesError = await themesResponse.text();
+      console.log(`Themes error: ${themesError}`);
+      
+      // Try alternative endpoint for themes
+      console.log('Trying alternative themes endpoint...');
+      try {
+        const altThemesResponse = await fetch(`${baseUrl}/wp-json/wp/v2/themes?status=all`, {
+          headers,
+        });
+        if (altThemesResponse.ok) {
+          themes = await altThemesResponse.json();
+          console.log(`Alternative themes data:`, themes);
+        }
+      } catch (altError) {
+        console.log(`Alternative themes endpoint failed:`, altError);
+      }
     }
 
-    // For database tables and media, we'll need to implement custom endpoints
-    // or use WP-CLI commands. For now, return mock data structure
+    // Try to get media count
+    console.log('Fetching media count...');
+    let mediaCount = 0;
+    try {
+      const mediaResponse = await fetch(`${baseUrl}/wp-json/wp/v2/media?per_page=1`, {
+        headers,
+      });
+      if (mediaResponse.ok) {
+        const totalHeader = mediaResponse.headers.get('X-WP-Total');
+        mediaCount = totalHeader ? parseInt(totalHeader) : 0;
+        console.log(`Media count: ${mediaCount}`);
+      }
+    } catch (mediaError) {
+      console.log(`Media count fetch failed:`, mediaError);
+    }
+
+    // Mock database tables for now (would need custom endpoint or WP-CLI)
     const tables = [
       { name: 'wp_posts', rows: 150, size: '2.3 MB', engine: 'InnoDB' },
       { name: 'wp_users', rows: 25, size: '0.1 MB', engine: 'InnoDB' },
@@ -55,26 +131,29 @@ const fetchWordPressData = async (credentials: WordPressCredentials) => {
       { name: 'wp_comments', rows: 300, size: '0.8 MB', engine: 'InnoDB' },
     ];
 
-    return {
+    const result = {
       plugins: plugins.map((plugin: any) => ({
-        name: plugin.name,
-        slug: plugin.plugin,
-        version: plugin.version,
-        status: plugin.status,
+        name: plugin.name || plugin.Name || 'Unknown Plugin',
+        slug: plugin.plugin || plugin.slug || 'unknown',
+        version: plugin.version || plugin.Version || '1.0.0',
+        status: plugin.status || 'inactive',
         update_available: plugin.update_available || false,
-        description: plugin.description?.rendered || '',
+        description: plugin.description?.rendered || plugin.Description || '',
       })),
       themes: themes.map((theme: any) => ({
-        name: theme.name?.rendered || theme.name,
-        slug: theme.stylesheet,
-        version: theme.version,
+        name: theme.name?.rendered || theme.name || theme.Name || 'Unknown Theme',
+        slug: theme.stylesheet || theme.slug || 'unknown',
+        version: theme.version || theme.Version || '1.0.0',
         status: theme.status || 'inactive',
-        update_available: false,
-        description: theme.description?.rendered || '',
+        update_available: theme.update_available || false,
+        description: theme.description?.rendered || theme.Description || '',
       })),
       tables,
-      media_count: 245, // This would need to be fetched from wp_posts where post_type='attachment'
+      media_count: mediaCount,
     };
+
+    console.log('Final result:', result);
+    return result;
   } catch (error) {
     console.error('Error fetching WordPress data:', error);
     throw new Error(`Failed to connect to WordPress site: ${error.message}`);
