@@ -13,6 +13,9 @@ class WP_Sync_Manager_Core {
     
     public function __construct() {
         add_action('init', array($this, 'init'));
+        add_action('wp_loaded', array($this, 'handle_cors'), 1);
+        add_action('send_headers', array($this, 'send_cors_headers'));
+        
         register_activation_hook(WP_SYNC_MANAGER_PLUGIN_DIR . 'wp-sync-manager.php', array($this, 'activate'));
         register_deactivation_hook(WP_SYNC_MANAGER_PLUGIN_DIR . 'wp-sync-manager.php', array($this, 'deactivate'));
         
@@ -25,6 +28,30 @@ class WP_Sync_Manager_Core {
         // Initialize admin if in admin area
         if (is_admin()) {
             new WP_Sync_Manager_Admin();
+        }
+    }
+    
+    public function handle_cors() {
+        // Handle CORS for wp-sync-manager endpoints
+        if (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/wp-json/wp-sync-manager/') !== false) {
+            $this->send_cors_headers();
+            
+            // Handle preflight OPTIONS requests
+            if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+                status_header(200);
+                exit;
+            }
+        }
+    }
+    
+    public function send_cors_headers() {
+        // Only add CORS headers for wp-sync-manager endpoints
+        if (isset($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], '/wp-json/wp-sync-manager/') !== false) {
+            header('Access-Control-Allow-Origin: *');
+            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+            header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, X-WP-Nonce');
+            header('Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages');
+            header('Access-Control-Max-Age: 86400');
         }
     }
     

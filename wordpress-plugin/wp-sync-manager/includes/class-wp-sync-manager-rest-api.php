@@ -1,7 +1,7 @@
 
 <?php
 /**
- * REST API endpoints and CORS handling
+ * REST API endpoints
  */
 
 // Prevent direct access
@@ -13,31 +13,6 @@ class WP_Sync_Manager_REST_API {
     
     public function __construct() {
         add_action('rest_api_init', array($this, 'register_rest_routes'));
-        add_action('rest_api_init', array($this, 'add_cors_support'));
-    }
-    
-    public function add_cors_support() {
-        // Add CORS support for all wp-sync-manager endpoints
-        add_filter('rest_pre_serve_request', array($this, 'add_cors_headers'), 15, 4);
-    }
-    
-    public function add_cors_headers($served, $result, $request, $server) {
-        // Only add CORS headers for our plugin endpoints
-        $route = $request->get_route();
-        if (strpos($route, '/wp-sync-manager/') !== false) {
-            header('Access-Control-Allow-Origin: *');
-            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
-            header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, X-WP-Nonce');
-            header('Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages');
-            
-            // Handle preflight OPTIONS requests
-            if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-                status_header(200);
-                exit();
-            }
-        }
-        
-        return $served;
     }
     
     public function register_rest_routes() {
