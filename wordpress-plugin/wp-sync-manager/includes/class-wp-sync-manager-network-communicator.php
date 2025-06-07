@@ -1,4 +1,3 @@
-
 <?php
 /**
  * Network communication operations for sync
@@ -78,11 +77,15 @@ class WP_Sync_Manager_Network_Communicator {
     }
     
     public function request_theme_from_target($theme_name, $target_url, $target_credentials) {
+        error_log("WP Sync Manager Network: Requesting theme '{$theme_name}' from {$target_url}");
+        
         $endpoint = $this->build_endpoint_url($target_url, '/wp-json/wp-sync-manager/v1/send-theme');
         
         $response = $this->make_authenticated_request($endpoint, array(
             'theme_name' => $theme_name,
         ), $target_credentials);
+        
+        error_log("WP Sync Manager Network: Theme request response received");
         
         return $response;
     }
@@ -144,6 +147,7 @@ class WP_Sync_Manager_Network_Communicator {
     private function make_authenticated_request($url, $data, $credentials) {
         // Log request details for debugging
         error_log("WP Sync Manager: Making request to URL: " . $url);
+        error_log("WP Sync Manager: Request data: " . print_r($data, true));
         error_log("WP Sync Manager: Credentials username: " . ($credentials['username'] ?? 'NOT SET'));
         
         // Validate URL before making request
@@ -169,7 +173,7 @@ class WP_Sync_Manager_Network_Communicator {
             'sslverify' => false, // Allow self-signed certificates for dev environments
         );
         
-        error_log("WP Sync Manager: Request args: " . print_r($args, true));
+        error_log("WP Sync Manager: Request args prepared");
         
         $response = wp_remote_post($url, $args);
         
@@ -183,7 +187,7 @@ class WP_Sync_Manager_Network_Communicator {
         $body = wp_remote_retrieve_body($response);
         
         error_log("WP Sync Manager: Response code: " . $response_code);
-        error_log("WP Sync Manager: Response body: " . $body);
+        error_log("WP Sync Manager: Response body length: " . strlen($body) . " chars");
         
         if ($response_code !== 200) {
             $error_message = "Request failed with status " . $response_code;
@@ -193,14 +197,17 @@ class WP_Sync_Manager_Network_Communicator {
                     $error_message .= ": " . $decoded_body['message'];
                 }
             }
+            error_log("WP Sync Manager: Request failed: " . $error_message);
             throw new Exception($error_message);
         }
         
         $decoded = json_decode($body, true);
         if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log("WP Sync Manager: Invalid JSON response: " . json_last_error_msg());
             throw new Exception('Invalid JSON response received');
         }
         
+        error_log("WP Sync Manager: Request completed successfully");
         return $decoded;
     }
 }

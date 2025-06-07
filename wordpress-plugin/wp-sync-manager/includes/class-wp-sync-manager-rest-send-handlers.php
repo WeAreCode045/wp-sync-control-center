@@ -1,4 +1,3 @@
-
 <?php
 /**
  * REST API send operation handlers
@@ -54,34 +53,90 @@ class WP_Sync_Manager_REST_Send_Handlers {
             return new WP_REST_Response(null, 200);
         }
         
-        error_log("WP Sync Manager REST API: Sending theme");
+        error_log("WP Sync Manager REST API: Sending theme - START");
         
         $params = $request->get_json_params();
         
         if (!isset($params['theme_name'])) {
+            error_log("WP Sync Manager REST API: Missing theme name parameter");
             return new WP_Error('missing_params', 'Missing theme name', array('status' => 400));
         }
         
+        $theme_name = sanitize_text_field($params['theme_name']);
+        error_log("WP Sync Manager REST API: Looking for theme: " . $theme_name);
+        
         try {
-            $theme_name = sanitize_text_field($params['theme_name']);
-            $theme_dir = get_theme_root() . '/' . $theme_name;
+            // First, get all available themes for debugging
+            $all_themes = wp_get_themes();
+            $theme_names = array_keys($all_themes);
+            error_log("WP Sync Manager REST API: Available themes: " . implode(', ', $theme_names));
             
-            error_log("WP Sync Manager REST API: Looking for theme directory: " . $theme_dir);
+            // Try multiple methods to find the theme
+            $theme = null;
+            $theme_dir = null;
             
-            if (!is_dir($theme_dir)) {
-                // Try to find theme by stylesheet name
-                $theme = wp_get_theme($theme_name);
-                if (!$theme->exists()) {
-                    error_log("WP Sync Manager REST API: Theme not found: " . $theme_name);
-                    return new WP_Error('theme_not_found', "Theme '{$theme_name}' not found", array('status' => 404));
-                }
+            // Method 1: Direct theme lookup by name
+            $theme = wp_get_theme($theme_name);
+            if ($theme->exists()) {
                 $theme_dir = $theme->get_stylesheet_directory();
+                error_log("WP Sync Manager REST API: Found theme via direct lookup: " . $theme_dir);
+            } else {
+                error_log("WP Sync Manager REST API: Direct lookup failed for: " . $theme_name);
+                
+                // Method 2: Try to find by display name
+                foreach ($all_themes as $stylesheet => $theme_obj) {
+                    if ($theme_obj->get('Name') === $theme_name) {
+                        $theme = $theme_obj;
+                        $theme_dir = $theme->get_stylesheet_directory();
+                        error_log("WP Sync Manager REST API: Found theme by display name: " . $theme_dir);
+                        break;
+                    }
+                }
+                
+                // Method 3: Try to find by partial name match
+                if (!$theme) {
+                    foreach ($all_themes as $stylesheet => $theme_obj) {
+                        if (stripos($theme_obj->get('Name'), $theme_name) !== false || stripos($stylesheet, $theme_name) !== false) {
+                            $theme = $theme_obj;
+                            $theme_dir = $theme->get_stylesheet_directory();
+                            error_log("WP Sync Manager REST API: Found theme by partial match: " . $theme_dir);
+                            break;
+                        }
+                    }
+                }
+                
+                // Method 4: Try folder-based approach
+                if (!$theme) {
+                    $theme_root = get_theme_root();
+                    $possible_dirs = array(
+                        $theme_root . '/' . $theme_name,
+                        $theme_root . '/' . sanitize_title($theme_name),
+                        $theme_root . '/' . strtolower(str_replace(' ', '-', $theme_name)),
+                        $theme_root . '/' . strtolower(str_replace(' ', '', $theme_name))
+                    );
+                    
+                    foreach ($possible_dirs as $dir) {
+                        if (is_dir($dir)) {
+                            $theme_dir = $dir;
+                            $theme = wp_get_theme(basename($dir));
+                            error_log("WP Sync Manager REST API: Found theme directory: " . $theme_dir);
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if (!$theme || !$theme_dir || !is_dir($theme_dir)) {
+                error_log("WP Sync Manager REST API: Theme not found after all methods: " . $theme_name);
+                return new WP_Error('theme_not_found', "Theme '{$theme_name}' not found. Available themes: " . implode(', ', $theme_names), array('status' => 404));
             }
             
             if (!is_readable($theme_dir)) {
                 error_log("WP Sync Manager REST API: Theme directory not readable: " . $theme_dir);
                 return new WP_Error('theme_not_readable', "Theme directory is not readable", array('status' => 403));
             }
+            
+            error_log("WP Sync Manager REST API: Creating zip for theme directory: " . $theme_dir);
             
             $file_handler = new WP_Sync_Manager_File_Handler();
             $zip_file = $file_handler->create_zip_from_directory($theme_dir, $file_handler->get_temp_filename($theme_name . '_theme'));
