@@ -9,7 +9,177 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
-      [_ in never]: never
+      projects: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      sync_conflicts: {
+        Row: {
+          conflict_data: Json
+          conflict_type: string
+          created_at: string
+          id: string
+          resolution: string | null
+          resolved_at: string | null
+          sync_operation_id: string
+          table_name: string
+        }
+        Insert: {
+          conflict_data: Json
+          conflict_type: string
+          created_at?: string
+          id?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          sync_operation_id: string
+          table_name: string
+        }
+        Update: {
+          conflict_data?: Json
+          conflict_type?: string
+          created_at?: string
+          id?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          sync_operation_id?: string
+          table_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_conflicts_sync_operation_id_fkey"
+            columns: ["sync_operation_id"]
+            isOneToOne: false
+            referencedRelation: "sync_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sync_operations: {
+        Row: {
+          completed_at: string | null
+          components: Json
+          created_by: string
+          error_message: string | null
+          id: string
+          operation_type: string
+          progress: number | null
+          project_id: string
+          source_environment: string
+          started_at: string | null
+          status: string
+          target_environment: string
+        }
+        Insert: {
+          completed_at?: string | null
+          components: Json
+          created_by: string
+          error_message?: string | null
+          id?: string
+          operation_type: string
+          progress?: number | null
+          project_id: string
+          source_environment: string
+          started_at?: string | null
+          status?: string
+          target_environment: string
+        }
+        Update: {
+          completed_at?: string | null
+          components?: Json
+          created_by?: string
+          error_message?: string | null
+          id?: string
+          operation_type?: string
+          progress?: number | null
+          project_id?: string
+          source_environment?: string
+          started_at?: string | null
+          status?: string
+          target_environment?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sync_operations_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wp_environments: {
+        Row: {
+          created_at: string
+          environment_type: string
+          id: string
+          last_connected_at: string | null
+          name: string
+          password: string
+          project_id: string
+          status: string | null
+          updated_at: string
+          url: string
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          environment_type: string
+          id?: string
+          last_connected_at?: string | null
+          name: string
+          password: string
+          project_id: string
+          status?: string | null
+          updated_at?: string
+          url: string
+          username: string
+        }
+        Update: {
+          created_at?: string
+          environment_type?: string
+          id?: string
+          last_connected_at?: string | null
+          name?: string
+          password?: string
+          project_id?: string
+          status?: string | null
+          updated_at?: string
+          url?: string
+          username?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wp_environments_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never

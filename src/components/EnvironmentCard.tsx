@@ -7,46 +7,56 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Database, Settings } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { WPEnvironment } from '@/types/wordpress';
 
 interface EnvironmentCardProps {
   title: string;
   description: string;
-  config: {
-    url: string;
-    username: string;
-    password: string;
-  };
+  config: Partial<WPEnvironment> & { url: string; username: string; password: string; name: string };
   onConfigChange: (config: any) => void;
   variant: 'live' | 'dev';
 }
 
 const EnvironmentCard = ({ title, description, config, onConfigChange, variant }: EnvironmentCardProps) => {
-  const [isConnected, setIsConnected] = React.useState(false);
-  const [isConnecting, setIsConnecting] = React.useState(false);
+  const [localConfig, setLocalConfig] = React.useState(config);
+  const [isTesting, setIsTesting] = React.useState(false);
+  const [hasChanges, setHasChanges] = React.useState(false);
+
+  React.useEffect(() => {
+    setLocalConfig(config);
+    setHasChanges(false);
+  }, [config]);
 
   const handleInputChange = (field: string, value: string) => {
-    onConfigChange({
-      ...config,
-      [field]: value
-    });
+    const newConfig = { ...localConfig, [field]: value };
+    setLocalConfig(newConfig);
+    setHasChanges(true);
+  };
+
+  const handleSaveConfig = async () => {
+    await onConfigChange(localConfig);
+    setHasChanges(false);
   };
 
   const handleTestConnection = async () => {
-    if (!config.url || !config.username || !config.password) {
+    if (!localConfig.url || !localConfig.username || !localConfig.password) {
       return;
     }
 
-    setIsConnecting(true);
-    console.log(`Testing connection to ${variant} environment:`, { url: config.url, username: config.username });
+    setIsTesting(true);
+    console.log(`Testing connection to ${variant} environment:`, { 
+      url: localConfig.url, 
+      username: localConfig.username 
+    });
     
-    // Simulate connection test
+    // TODO: Implement real connection test via edge function
     setTimeout(() => {
-      setIsConnected(true);
-      setIsConnecting(false);
+      setIsTesting(false);
     }, 2000);
   };
 
-  const isConfigComplete = config.url && config.username && config.password;
+  const isConfigComplete = localConfig.url && localConfig.username && localConfig.password;
+  const isConnected = config.status === 'connected';
 
   return (
     <Card className={cn(
@@ -84,11 +94,21 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
 
       <CardContent className="space-y-4">
         <div className="space-y-2">
+          <Label htmlFor={`${variant}-name`}>Environment Name</Label>
+          <Input
+            id={`${variant}-name`}
+            placeholder="Live Site"
+            value={localConfig.name || ''}
+            onChange={(e) => handleInputChange('name', e.target.value)}
+          />
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor={`${variant}-url`}>WordPress URL</Label>
           <Input
             id={`${variant}-url`}
             placeholder="https://your-site.com"
-            value={config.url}
+            value={localConfig.url || ''}
             onChange={(e) => handleInputChange('url', e.target.value)}
           />
         </div>
@@ -98,7 +118,7 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
           <Input
             id={`${variant}-username`}
             placeholder="admin"
-            value={config.username}
+            value={localConfig.username || ''}
             onChange={(e) => handleInputChange('username', e.target.value)}
           />
         </div>
@@ -109,23 +129,35 @@ const EnvironmentCard = ({ title, description, config, onConfigChange, variant }
             id={`${variant}-password`}
             type="password"
             placeholder="••••••••"
-            value={config.password}
+            value={localConfig.password || ''}
             onChange={(e) => handleInputChange('password', e.target.value)}
           />
         </div>
 
-        <Button
-          onClick={handleTestConnection}
-          disabled={!isConfigComplete || isConnecting}
-          className={cn(
-            "w-full",
-            variant === 'live' && "bg-red-600 hover:bg-red-700",
-            variant === 'dev' && "bg-blue-600 hover:bg-blue-700"
+        <div className="flex gap-2">
+          {hasChanges && (
+            <Button
+              onClick={handleSaveConfig}
+              className={cn(
+                "flex-1",
+                variant === 'live' && "bg-red-600 hover:bg-red-700",
+                variant === 'dev' && "bg-blue-600 hover:bg-blue-700"
+              )}
+            >
+              Save Configuration
+            </Button>
           )}
-        >
-          <Settings className="h-4 w-4 mr-2" />
-          {isConnecting ? 'Testing Connection...' : 'Test Connection'}
-        </Button>
+          
+          <Button
+            onClick={handleTestConnection}
+            disabled={!isConfigComplete || isTesting}
+            variant="outline"
+            className="flex-1"
+          >
+            <Settings className="h-4 w-4 mr-2" />
+            {isTesting ? 'Testing...' : 'Test Connection'}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
