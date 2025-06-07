@@ -4,6 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+     "plugin:setup": "node scripts/plugin-dev.js setup",
+  "plugin:pull": "node scripts/plugin-dev.js pull", 
+  "plugin:push": "node scripts/plugin-dev.js push",
+  "plugin:status": "node scripts/plugin-dev.js status",
+  "plugin:watch": "node scripts/plugin-dev.js watch",
     "dev": "vite",
     "build": "vite build",
     "build:dev": "vite build --mode development",
