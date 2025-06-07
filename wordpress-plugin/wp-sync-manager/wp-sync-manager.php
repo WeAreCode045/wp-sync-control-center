@@ -25,6 +25,7 @@ class WP_Sync_Manager {
     public function __construct() {
         add_action('init', array($this, 'init'));
         add_action('rest_api_init', array($this, 'register_rest_routes'));
+        add_action('rest_api_init', array($this, 'add_cors_support'));
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
     }
@@ -39,33 +40,67 @@ class WP_Sync_Manager {
         }
     }
     
+    public function add_cors_support() {
+        // Add CORS support for all wp-sync-manager endpoints
+        add_filter('rest_pre_serve_request', array($this, 'add_cors_headers'), 15, 4);
+    }
+    
+    public function add_cors_headers($served, $result, $request, $server) {
+        // Only add CORS headers for our plugin endpoints
+        $route = $request->get_route();
+        if (strpos($route, '/wp-sync-manager/') !== false) {
+            header('Access-Control-Allow-Origin: *');
+            header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
+            header('Access-Control-Allow-Headers: Authorization, Content-Type, X-Requested-With, X-WP-Nonce');
+            header('Access-Control-Expose-Headers: X-WP-Total, X-WP-TotalPages');
+            
+            // Handle preflight OPTIONS requests
+            if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+                status_header(200);
+                exit();
+            }
+        }
+        
+        return $served;
+    }
+    
     public function register_rest_routes() {
         // Register REST API endpoints for sync operations
         register_rest_route('wp-sync-manager/v1', '/sync', array(
-            'methods' => 'POST',
+            'methods' => array('POST', 'OPTIONS'),
             'callback' => array($this, 'handle_sync_request'),
             'permission_callback' => array($this, 'check_sync_permissions'),
         ));
         
         register_rest_route('wp-sync-manager/v1', '/status', array(
-            'methods' => 'GET',
+            'methods' => array('GET', 'OPTIONS'),
             'callback' => array($this, 'get_sync_status'),
             'permission_callback' => array($this, 'check_sync_permissions'),
         ));
         
         register_rest_route('wp-sync-manager/v1', '/data', array(
-            'methods' => 'GET',
+            'methods' => array('GET', 'OPTIONS'),
             'callback' => array($this, 'get_wp_data'),
             'permission_callback' => array($this, 'check_sync_permissions'),
         ));
     }
     
     public function check_sync_permissions($request) {
+        // Handle OPTIONS requests without authentication
+        if ($request->get_method() === 'OPTIONS') {
+            return true;
+        }
+        
         // Check if user has administrator capabilities
         return current_user_can('manage_options');
     }
     
     public function handle_sync_request($request) {
+        // Handle OPTIONS requests
+        if ($request->get_method() === 'OPTIONS') {
+            return new WP_REST_Response(null, 200);
+        }
+        
         $params = $request->get_json_params();
         
         if (!isset($params['operation_type']) || !isset($params['components'])) {
@@ -86,6 +121,11 @@ class WP_Sync_Manager {
     }
     
     public function get_wp_data($request) {
+        // Handle OPTIONS requests
+        if ($request->get_method() === 'OPTIONS') {
+            return new WP_REST_Response(null, 200);
+        }
+        
         try {
             $data = array(
                 'plugins' => $this->get_plugins_data(),
@@ -372,6 +412,11 @@ class WP_Sync_Manager {
     }
     
     public function get_sync_status($request) {
+        // Handle OPTIONS requests
+        if ($request->get_method() === 'OPTIONS') {
+            return new WP_REST_Response(null, 200);
+        }
+        
         // Return current sync status/progress
         return rest_ensure_response(array(
             'status' => 'idle',
