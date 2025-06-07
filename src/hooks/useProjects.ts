@@ -48,7 +48,7 @@ export const useProjects = () => {
       
       const envMap: { live?: WPEnvironment; dev?: WPEnvironment } = {};
       data?.forEach(env => {
-        envMap[env.environment_type as 'live' | 'dev'] = env;
+        envMap[env.environment_type as 'live' | 'dev'] = env as WPEnvironment;
       });
       
       setEnvironments(envMap);
@@ -62,7 +62,7 @@ export const useProjects = () => {
     }
   };
 
-  const createProject = async (name: string, description?: string) => {
+  const createProject = async (name: string, description?: string): Promise<Project> => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
@@ -116,7 +116,7 @@ export const useProjects = () => {
       
       setEnvironments(prev => ({
         ...prev,
-        [environmentType]: data
+        [environmentType]: data as WPEnvironment
       }));
       
       toast({
