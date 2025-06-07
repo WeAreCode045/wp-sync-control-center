@@ -26,6 +26,14 @@ class WP_Sync_Manager_Theme_Sync {
             try {
                 error_log("WP Sync Manager Theme Sync: Processing theme: {$theme_name}");
                 
+                // First check if theme exists locally for push operations
+                if ($operation_type === 'push') {
+                    $theme_dir = get_theme_root() . '/' . $theme_name;
+                    if (!is_dir($theme_dir)) {
+                        throw new Exception("Theme directory not found locally: {$theme_name}");
+                    }
+                }
+                
                 if ($operation_type === 'push') {
                     $result = $this->push_theme($theme_name, $target_url, $target_credentials);
                 } else {
@@ -111,32 +119,62 @@ class WP_Sync_Manager_Theme_Sync {
         error_log("WP Sync Manager Theme Sync: Pulling theme {$theme_name} via REST from {$target_url}");
         
         $communicator = new WP_Sync_Manager_Network_Communicator();
-        $theme_data = $communicator->request_theme_from_target($theme_name, $target_url, $target_credentials);
-        $result = $this->install_theme_from_data($theme_data, $theme_name);
-        $result['method'] = 'rest_api';
         
-        return $result;
+        try {
+            $theme_data = $communicator->request_theme_from_target($theme_name, $target_url, $target_credentials);
+            $result = $this->install_theme_from_data($theme_data, $theme_name);
+            $result['method'] = 'rest_api';
+            
+            return $result;
+        } catch (Exception $e) {
+            // More specific error handling for theme not found
+            if (strpos($e->getMessage(), '404') !== false) {
+                throw new Exception("Theme '{$theme_name}' not found on source environment. Please ensure the theme exists and is accessible.");
+            }
+            throw $e;
+        }
     }
     
     public function install_theme_from_data($theme_data, $theme_name) {
         error_log("WP Sync Manager Theme Sync: Installing theme {$theme_name} from data");
         
+        if (!isset($theme_data['file_data']) || empty($theme_data['file_data'])) {
+            throw new Exception("No theme data received for {$theme_name}");
+        }
+        
         $theme_dir = get_theme_root() . '/' . sanitize_file_name($theme_name);
         
+        // Create theme directory if it doesn't exist
         if (!is_dir($theme_dir)) {
-            wp_mkdir_p($theme_dir);
+            if (!wp_mkdir_p($theme_dir)) {
+                throw new Exception("Failed to create theme directory: {$theme_dir}");
+            }
         }
         
         $zip_data = base64_decode($theme_data['file_data']);
-        $temp_file = sys_get_temp_dir() . '/' . $theme_name . '.zip';
-        file_put_contents($temp_file, $zip_data);
+        if ($zip_data === false) {
+            throw new Exception("Failed to decode theme data for {$theme_name}");
+        }
         
-        $file_handler = new WP_Sync_Manager_File_Handler();
-        $file_handler->extract_zip_to_directory($temp_file, $theme_dir);
-        $file_handler->cleanup_temp_file($temp_file);
+        $temp_file = sys_get_temp_dir() . '/' . $theme_name . '_' . time() . '.zip';
+        if (file_put_contents($temp_file, $zip_data) === false) {
+            throw new Exception("Failed to write temporary file for theme {$theme_name}");
+        }
         
-        error_log("WP Sync Manager Theme Sync: Successfully installed theme {$theme_name}");
-        
-        return array('success' => true, 'method' => 'rest_api');
+        try {
+            $file_handler = new WP_Sync_Manager_File_Handler();
+            $file_handler->extract_zip_to_directory($temp_file, get_theme_root());
+            $file_handler->cleanup_temp_file($temp_file);
+            
+            error_log("WP Sync Manager Theme Sync: Successfully installed theme {$theme_name}");
+            
+            return array('success' => true, 'method' => 'rest_api');
+        } catch (Exception $e) {
+            // Clean up temp file even if extraction fails
+            if (file_exists($temp_file)) {
+                unlink($temp_file);
+            }
+            throw new Exception("Failed to extract theme {$theme_name}: " . $e->getMessage());
+        }
     }
 }
